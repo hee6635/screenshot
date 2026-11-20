@@ -219,6 +219,32 @@ public class ShotService extends AccessibilityService {
         return out;
     }
 
+    /** Bounds of the biggest scrollable element on screen (a chat or feed list), or null. */
+    Rect scrollingList(int w, int h) {
+        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
+        for (AccessibilityWindowInfo win : getWindows()) {
+            if (win.getType() != AccessibilityWindowInfo.TYPE_APPLICATION) continue;
+            AccessibilityNodeInfo root = win.getRoot();
+            if (root != null) q.add(root);
+        }
+        Rect best = null, r = new Rect();
+        int visited = 0;
+        while (!q.isEmpty() && visited++ < 800) {
+            AccessibilityNodeInfo n = q.poll();
+            if (!n.isVisibleToUser()) continue;
+            n.getBoundsInScreen(r);
+            if (n.isScrollable() && r.intersect(0, 0, w, h) && r.height() > h * 0.3f
+                    && (best == null || (long) r.width() * r.height() > (long) best.width() * best.height())) {
+                best = new Rect(r);
+            }
+            for (int i = 0; i < n.getChildCount(); i++) {
+                AccessibilityNodeInfo child = n.getChild(i);
+                if (child != null) q.add(child);
+            }
+        }
+        return best;
+    }
+
     /** Saves a PNG into the TempShots album. Recycles img unless it is the kept full capture. */
     Uri save(Bitmap img) {
         ContentResolver cr = getContentResolver();
@@ -268,7 +294,13 @@ public class ShotService extends AccessibilityService {
     private void startScroll() {
         if (lastFull == null || lastUri == null) { toast("이 이미지는 스크롤 캡처를 이어갈 수 없어요"); return; }
         hideToolbarNow();
-        scroll = new ScrollCapture(this, lastFull, lastBars, lastUri);
+        Rect list = null;
+        try {
+            list = scrollingList(lastFull.getWidth(), lastFull.getHeight());
+        } catch (RuntimeException e) {
+            // Best effort: without it the header/footer are inferred from the first step.
+        }
+        scroll = new ScrollCapture(this, lastFull, lastBars, lastUri, list);
         lastFull = null; // ownership moves to the scroll capture
         scroll.start();
     }

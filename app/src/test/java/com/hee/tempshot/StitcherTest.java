@@ -59,4 +59,24 @@ public class StitcherTest {
         boolean[] none = new boolean[H];
         assertEquals(-1, Stitcher.findShift(a, b, none, HEADER, H - FOOTER, 10, 50));
     }
+
+    @Test
+    public void stripsComeFromAboveTheCutAndChainWithoutOverlap() {
+        int regionTop = 100, cut = 700;
+        int taken = cut; // first frame contributed rows [0, 700)
+        int[] s1 = Stitcher.strip(taken, 400, cut, regionTop); // scrolled 400
+        assertEquals(300, s1[0]);
+        assertEquals(700, s1[1]);
+        taken = 400 + cut;
+        int[] s2 = Stitcher.strip(taken, 750, cut, regionTop); // scrolled 350 more
+        assertEquals(350, s2[0]);
+        assertEquals(700, s2[1]);
+    }
+
+    @Test
+    public void tooLongSwipeStartsAtRegionTop() {
+        int[] s = Stitcher.strip(700, 700, 700, 100); // moved a whole cut at once
+        assertEquals(100, s[0]);
+        assertEquals(700, s[1]);
+    }
 }

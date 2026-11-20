@@ -6,6 +6,7 @@ import android.annotation.SuppressLint;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Path;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.view.Gravity;
@@ -19,11 +20,14 @@ import android.widget.TextView;
 import java.util.ArrayList;
 
 /**
- * Scroll capture driven by the user: each tap on ⌄⌄ swipes the app up by ~45% of the screen,
+ * Scroll capture driven by the user: each tap on ⌄⌄ swipes the scrolling list up by ~45%,
  * takes a shot and stitches the new rows; holding it repeats. "완료" saves one tall image.
+ * New rows are taken from the middle of the list (above "cut"), never its bottom edge, so input
+ * bars, floating buttons and toasts that sit low on screen are not repeated in every strip.
  */
 final class ScrollCapture {
-    private static final float SWIPE = 0.45f;     // share of screen height per step
+    private static final float SWIPE = 0.45f;     // share of the list height per step
+    private static final float CUT = 0.6f;        // strips come from above this share of the list
     private static final int MAX_PAGES = 25;
     private static final int MAX_HEIGHT = 30000;  // px, keeps the final bitmap within memory
 
@@ -34,7 +38,8 @@ final class ScrollCapture {
     private final ArrayList<Bitmap> pieces = new ArrayList<>();
     private Bitmap prev;               // last full frame
     private int[] prevHash;
-    private int footer = -1;           // fixed bottom rows, measured on the first step
+    private int regionTop, regionBottom = -1; // rows of the scrolling list; -1 = infer from the first step
+    private int cut, offset, taken;           // see Stitcher.strip
     private int pages = 1, height;
     private boolean pressed, busy, ended, finished;
 
@@ -42,7 +47,7 @@ final class ScrollCapture {
     private TextView label;
     private ImageView thumb;
 
-    ScrollCapture(ShotService svc, Bitmap first, int[] bars, Uri original) {
+    ScrollCapture(ShotService svc, Bitmap first, int[] bars, Uri original, Rect list) {
         this.svc = svc;
         this.bars = bars;
         this.original = original;
@@ -50,6 +55,10 @@ final class ScrollCapture {
         w = first.getWidth();
         h = first.getHeight();
         prevHash = hashes(first, null);
+        if (list != null) {
+            regionTop = Math.max(0, list.top);
+            regionBottom = Math.min(h, list.bottom);
+        }
     }
 
     void start() {
@@ -91,7 +100,8 @@ final class ScrollCapture {
     private void stepUnsafe() {
         if (busy || ended || finished) return;
         busy = true;
-        float x = w / 2f, y0 = h * 0.70f, y1 = y0 - h * SWIPE;
+        int top = regionBottom > 0 ? regionTop : 0, listH = (regionBottom > 0 ? regionBottom : h) - top;
+        float x = w / 2f, y0 = top + listH * 0.8f, y1 = y0 - listH * SWIPE;
         Path drag = new Path();
         drag.moveTo(x, y0);
         drag.lineTo(x, y1);
@@ -150,32 +160,46 @@ final class ScrollCapture {
         if (finished) { b.recycle(); return null; }
         boolean[] info = new boolean[h];
         int[] hash = hashes(b, info);
-        int top = Stitcher.sameTop(prevHash, hash);
-        if (top >= h) { b.recycle(); return "끝까지 캡처했어요"; }
-        int bottom = Stitcher.sameBottom(prevHash, hash, h - top);
-        if (footer < 0) {
-            footer = bottom;
-            pieces.add(Bitmap.createBitmap(prev, 0, 0, w, h - footer)); // first screen down to the footer
-            height = h - footer;
+        if (regionBottom < 0) { // no scrolling list found: rows that stayed put are header / footer
+            int top = Stitcher.sameTop(prevHash, hash);
+            if (top >= h) { b.recycle(); return "끝까지 캡처했어요"; }
+            regionTop = top;
+            regionBottom = h - Stitcher.sameBottom(prevHash, hash, h - top);
         }
-        int contentBottom = h - footer;
-        int expected = Math.round(h * SWIPE);
-        int d = Stitcher.findShift(prevHash, hash, info, top, contentBottom, expected / 2, expected * 8 / 5);
+        boolean moved = false;
+        for (int y = regionTop; y < regionBottom && !moved; y++) moved = prevHash[y] != hash[y];
+        if (!moved) { b.recycle(); return "끝까지 캡처했어요"; }
+        int listH = regionBottom - regionTop;
+        if (pieces.isEmpty()) {
+            cut = regionTop + Math.round(listH * CUT);
+            pieces.add(rows(prev, 0, cut)); // header + first part of the list
+            taken = cut;
+            height = cut;
+        }
+        int expected = Math.round(listH * SWIPE);
+        int d = Stitcher.findShift(prevHash, hash, info, regionTop, regionBottom, expected / 2, expected * 8 / 5);
         if (d <= 0) { b.recycle(); return "더 이어 붙일 수 없는 화면이에요"; }
-        // shortcut: assumes the sticky footer height stays the same during the capture; apps that hide
-        // their bottom bar while scrolling can leave a small seam.
-        pieces.add(Bitmap.createBitmap(b, 0, contentBottom - d, w, d));
-        height += d;
+        offset += d;
+        int[] strip = Stitcher.strip(taken, offset, cut, regionTop);
+        if (strip[1] > strip[0]) {
+            pieces.add(rows(b, strip[0], strip[1]));
+            height += strip[1] - strip[0];
+        }
+        taken = offset + cut;
         pages++;
-        // createBitmap() hands back the source itself when the cut is the whole frame (no footer),
-        // so the first piece can BE prev: recycling it then crashed "완료" with a recycled bitmap.
-        if (!pieces.contains(prev)) prev.recycle();
+        prev.recycle();
         prev = b;
         prevHash = hash;
         Bitmap t = ShotService.thumbnail(svc, b);
         svc.handler.post(() -> thumb.setImageBitmap(t));
         if (pages >= MAX_PAGES || height >= MAX_HEIGHT) return "최대 길이까지 캡처했어요";
         return null;
+    }
+
+    /** Copy of rows [y0, y1). createBitmap() returns the source itself for a full-frame cut, which we recycle later. */
+    private Bitmap rows(Bitmap src, int y0, int y1) {
+        Bitmap r = Bitmap.createBitmap(src, 0, y0, w, y1 - y0);
+        return r == src ? src.copy(Bitmap.Config.ARGB_8888, false) : r;
     }
 
     private int[] hashes(Bitmap b, boolean[] info) {
@@ -199,16 +223,15 @@ final class ScrollCapture {
             synchronized (this) {
                 if (pieces.size() > 1) {
                     try {
-                        out = Bitmap.createBitmap(w, height + footer, Bitmap.Config.ARGB_8888);
+                        out = Bitmap.createBitmap(w, height + h - cut, Bitmap.Config.ARGB_8888);
                         Canvas c = new Canvas(out);
                         int y = 0;
                         for (Bitmap p : pieces) {
                             c.drawBitmap(p, 0, y, null);
                             y += p.getHeight();
                         }
-                        // the footer (navigation bar, sticky bottom) from the last frame
-                        c.drawBitmap(prev, new android.graphics.Rect(0, h - footer, w, h),
-                                new android.graphics.Rect(0, y, w, y + footer), null);
+                        // rest of the last frame: bottom of the list, input bar, navigation bar
+                        c.drawBitmap(prev, new Rect(0, cut, w, h), new Rect(0, y, w, y + h - cut), null);
                     } catch (OutOfMemoryError e) {
                         out = null;
                         svc.toast("이미지가 너무 길어서 저장하지 못했어요");

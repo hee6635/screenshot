@@ -59,6 +59,18 @@ final class Stitcher {
         return best != -1 ? best : best(votes, 1, votes.length - 1);
     }
 
+    /**
+     * Rows [y0, y1) of the newest frame to append. taken = page rows already in the result,
+     * offset = page row at this frame's y=0, cut = lowest frame row used (kept above floating
+     * buttons, toasts and input bars), regionTop = first row that scrolls.
+     */
+    static int[] strip(int taken, int offset, int cut, int regionTop) {
+        // If one swipe moved further than cut - regionTop, the rows in between were never on a
+        // trusted part of the screen; start at regionTop and accept the small gap.
+        int y0 = Math.max(taken - offset, regionTop);
+        return new int[]{y0, Math.max(y0, cut)};
+    }
+
     private static int best(int[] votes, int from, int to) {
         int best = -1, bestVotes = MIN_VOTES - 1;
         for (int d = from; d <= to; d++) {
