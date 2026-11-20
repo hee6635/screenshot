@@ -116,6 +116,7 @@ public class ShotService extends AccessibilityService {
             int[] bars = lastBars;
             int w = bmp.getWidth(), h = bmp.getHeight();
             new Thread(() -> {
+              try {
                 Uri uri = save(trim(bmp, bars));
                 if (uri == null) { saving = false; return; }
                 Bitmap thumb = thumbnail(this, bmp);
@@ -131,6 +132,11 @@ public class ShotService extends AccessibilityService {
                     // Best effort: windows can vanish mid-walk (e.g. another screen opening); crop still works by hand.
                     lastCandidates = new ArrayList<>();
                 }
+              } catch (Throwable e) { // a crash here would switch the accessibility service off
+                TempShotApp.record(this, e);
+                saving = false;
+                toast("캡처 저장 중 오류가 났어요");
+              }
             }).start();
         }, () -> { saving = false; toast("캡처 실패"); });
     }
@@ -275,6 +281,7 @@ public class ShotService extends AccessibilityService {
             return;
         }
         new Thread(() -> {
+          try {
             Bitmap thumb = thumbnail(this, stitched);
             Bitmap out = trim(stitched, bars);
             if (out != stitched) stitched.recycle();
@@ -285,6 +292,10 @@ public class ShotService extends AccessibilityService {
                 copy(this, uri);
                 showToolbar(uri, thumb, false);
             });
+          } catch (Throwable e) {
+            TempShotApp.record(this, e);
+            toast("스크롤 캡처를 저장하지 못했어요");
+          }
         }).start();
     }
 

@@ -65,7 +65,30 @@ final class ScrollCapture {
 
     // --- capture loop ---
 
+    /**
+     * Runs r and turns any error into a stopped-but-alive session. An uncaught error would kill the
+     * process, and Android then switches the accessibility service off.
+     */
+    private void guard(Runnable r) {
+        try {
+            r.run();
+        } catch (Throwable e) {
+            TempShotApp.record(svc, e);
+            svc.handler.post(() -> {
+                busy = false;
+                pressed = false;
+                ended = true;
+                if (pill != null) pill.setVisibility(View.VISIBLE);
+                svc.toast("스크롤 캡처 중 오류가 났어요. '완료'로 지금까지 저장할 수 있어요");
+            });
+        }
+    }
+
     private void step() {
+        guard(this::stepUnsafe);
+    }
+
+    private void stepUnsafe() {
         if (busy || ended || finished) return;
         busy = true;
         float x = w / 2f, y0 = h * 0.70f, y1 = y0 - h * SWIPE;
@@ -80,7 +103,7 @@ final class ScrollCapture {
             hold.lineTo(x, y1 + 1);
             dispatch(move.continueStroke(hold, 0, 200, false), () -> {
                 pill.setVisibility(View.INVISIBLE); // keep our own bar out of the shot
-                svc.handler.postDelayed(this::shootStep, 250);
+                svc.handler.postDelayed(() -> guard(this::shootStep), 250);
             });
         });
     }
@@ -88,7 +111,7 @@ final class ScrollCapture {
     private void dispatch(GestureDescription.StrokeDescription s, Runnable done) {
         GestureDescription g = new GestureDescription.Builder().addStroke(s).build();
         boolean ok = svc.dispatchGesture(g, new AccessibilityService.GestureResultCallback() {
-            @Override public void onCompleted(GestureDescription d) { done.run(); }
+            @Override public void onCompleted(GestureDescription d) { guard(done); }
             @Override public void onCancelled(GestureDescription d) { stepFailed("스크롤하지 못했어요"); }
         }, svc.handler);
         if (!ok) stepFailed("스크롤하지 못했어요");
@@ -96,11 +119,11 @@ final class ScrollCapture {
 
     private void shootStep() {
         if (finished) return;
-        svc.shoot(frame -> {
+        svc.shoot(frame -> guard(() -> {
             pill.setVisibility(View.VISIBLE);
-            new Thread(() -> {
+            new Thread(() -> guard(() -> {
                 String stop = add(frame);
-                svc.handler.post(() -> {
+                svc.handler.post(() -> guard(() -> {
                     busy = false;
                     if (finished) return;
                     label.setText("캡처 중 · " + pages + "페이지");
@@ -110,9 +133,9 @@ final class ScrollCapture {
                     } else if (pressed) {
                         step();
                     }
-                });
-            }).start();
-        }, () -> stepFailed("캡처 실패"));
+                }));
+            })).start();
+        }), () -> stepFailed("캡처 실패"));
     }
 
     private void stepFailed(String msg) {
@@ -144,7 +167,9 @@ final class ScrollCapture {
         pieces.add(Bitmap.createBitmap(b, 0, contentBottom - d, w, d));
         height += d;
         pages++;
-        prev.recycle();
+        // createBitmap() hands back the source itself when the cut is the whole frame (no footer),
+        // so the first piece can BE prev: recycling it then crashed "완료" with a recycled bitmap.
+        if (!pieces.contains(prev)) prev.recycle();
         prev = b;
         prevHash = hash;
         Bitmap t = ShotService.thumbnail(svc, b);
@@ -170,6 +195,7 @@ final class ScrollCapture {
         svc.removeView(pill);
         new Thread(() -> {
             Bitmap out = null;
+            try {
             synchronized (this) {
                 if (pieces.size() > 1) {
                     try {
@@ -189,6 +215,11 @@ final class ScrollCapture {
                     }
                 }
                 recycleAll();
+            }
+            } catch (Throwable e) {
+                TempShotApp.record(svc, e);
+                svc.toast("스크롤 캡처를 저장하지 못했어요");
+                out = null;
             }
             Bitmap result = out;
             svc.handler.post(() -> svc.onScrollFinished(result, original, bars));
