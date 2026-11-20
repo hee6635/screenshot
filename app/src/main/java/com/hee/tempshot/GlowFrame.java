@@ -2,99 +2,107 @@ package com.hee.tempshot;
 
 import android.animation.ValueAnimator;
 import android.content.Context;
-import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.SweepGradient;
 import android.view.MotionEvent;
+import android.view.View;
 import android.widget.FrameLayout;
 
 /**
- * Pill with a cyan/blue/purple gradient border and soft glow (Galaxy AI bar mood).
- * The glow sweeps around on appear, then settles to a calm static border unless spinForever.
- * Padding leaves room for the glow outside the pill. Optional swipe-down to dismiss.
+ * Hosts the floating bar's card and draws its edge: a calm 1dp hairline, plus a pastel glow with a
+ * transparent tail that sweeps around once after a capture (1.6s) and fades to nothing.
+ * The glow is three plain strokes (no blur), so the view stays hardware-rendered and the card's
+ * elevation shadow still draws. Padding is the bleed that keeps glow and shadow from being clipped.
  */
 final class GlowFrame extends FrameLayout {
-    private static final int[] COLORS = {0xFF22D3EE, 0xFF3E82F7, 0xFF8B5CF6, 0xFFC084FC, 0xFF22D3EE};
-    private static final float SETTLED_GLOW = 0.35f;
-    private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final RectF pill = new RectF();
-    private final Matrix rotate = new Matrix();
+    private static final int[] COLORS = {0x0038BDF8, 0xFF38BDF8, 0xFF818CF8, 0xFFC084FC, 0x00C084FC};
+    private static final float[] STOPS = {0f, 0.3f, 0.55f, 0.8f, 1f};
+    private static final float[] WIDTH_DP = {7f, 3.5f, 1.5f};
+    private static final float[] ALPHA = {0.12f, 0.30f, 0.95f};
+    private static final long GLOW_MS = 1600;
+
+    private final View card;
     private final boolean spinForever;
-    private final float slop, dismissDistance;
+    private final float dp, radius, slop, dismissDistance;
+    private final Paint hairline = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF edge = new RectF();
+    private final Matrix rotate = new Matrix();
     private SweepGradient sweep;
+    private float sweepCx = -1, sweepCy = -1;
     private float angle, glowAlpha = 1f, downY;
-    private boolean dragging;
-    private ValueAnimator spin, settle;
+    private ValueAnimator anim;
     Runnable onSwipeDown;
 
-    GlowFrame(Context c, int fillColor, int margin, boolean spinForever) {
+    GlowFrame(Context c, View card, int hairlineColor, float radiusDp, int padH, int padV, boolean spinForever) {
         super(c);
+        this.card = card;
         this.spinForever = spinForever;
-        setWillNotDraw(false);
-        setClipChildren(false);
-        setLayerType(LAYER_TYPE_SOFTWARE, null); // BlurMaskFilter needs a software layer
-        setPadding(margin, margin, margin, margin);
-        float dp = c.getResources().getDisplayMetrics().density;
+        dp = c.getResources().getDisplayMetrics().density;
+        radius = radiusDp * dp;
         slop = 8 * dp;
         dismissDistance = 40 * dp;
-        fill.setColor(fillColor);
-        stroke.setStyle(Paint.Style.STROKE);
-        stroke.setStrokeWidth(2.5f * dp);
+        setWillNotDraw(false);
+        setClipChildren(false);
+        setClipToPadding(false);
+        setPadding(padH, padV, padH, padV);
+        addView(card, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+        hairline.setStyle(Paint.Style.STROKE);
+        hairline.setStrokeWidth(1 * dp);
+        hairline.setColor(hairlineColor);
         glow.setStyle(Paint.Style.STROKE);
-        glow.setStrokeWidth(7 * dp);
-        glow.setMaskFilter(new BlurMaskFilter(9 * dp, BlurMaskFilter.Blur.NORMAL));
     }
 
     @Override
-    protected void onSizeChanged(int w, int h, int ow, int oh) {
-        pill.set(getPaddingLeft(), getPaddingTop(), w - getPaddingRight(), h - getPaddingBottom());
-        sweep = new SweepGradient(w / 2f, h / 2f, COLORS, null);
-        stroke.setShader(sweep);
-        glow.setShader(sweep);
-    }
-
-    @Override
-    protected void onDraw(Canvas c) {
-        if (sweep == null) return;
-        float r = pill.height() / 2;
-        rotate.setRotate(angle, getWidth() / 2f, getHeight() / 2f);
+    protected void dispatchDraw(Canvas c) {
+        super.dispatchDraw(c);
+        float inset = 0.5f * dp; // keep the 1dp hairline on the card's edge, not half outside it
+        edge.set(card.getLeft() + inset, card.getTop() + inset, card.getRight() - inset, card.getBottom() - inset);
+        c.drawRoundRect(edge, radius, radius, hairline);
+        if (glowAlpha <= 0) return;
+        if (sweep == null || sweepCx != edge.centerX() || sweepCy != edge.centerY()) {
+            sweepCx = edge.centerX();
+            sweepCy = edge.centerY();
+            sweep = new SweepGradient(sweepCx, sweepCy, COLORS, STOPS);
+            glow.setShader(sweep);
+        }
+        rotate.setRotate(angle, sweepCx, sweepCy);
         sweep.setLocalMatrix(rotate);
-        glow.setAlpha((int) (glowAlpha * 230));
-        c.drawRoundRect(pill, r, r, glow);
-        c.drawRoundRect(pill, r, r, fill);
-        c.drawRoundRect(pill, r, r, stroke);
+        for (int i = 0; i < WIDTH_DP.length; i++) {
+            glow.setStrokeWidth(WIDTH_DP[i] * dp);
+            glow.setAlpha(Math.round(255 * ALPHA[i] * glowAlpha));
+            c.drawRoundRect(edge, radius, radius, glow);
+        }
     }
 
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-        spin = ValueAnimator.ofFloat(0, 360);
-        spin.setDuration(1600);
-        spin.setRepeatCount(ValueAnimator.INFINITE);
-        spin.setInterpolator(null); // linear
-        spin.addUpdateListener(a -> { angle = (float) a.getAnimatedValue(); invalidate(); });
-        spin.start();
-        if (spinForever) return;
-        settle = ValueAnimator.ofFloat(1f, SETTLED_GLOW);
-        settle.setStartDelay(1600);
-        settle.setDuration(700);
-        settle.addUpdateListener(a -> {
-            glowAlpha = (float) a.getAnimatedValue();
-            if (a.getAnimatedFraction() >= 1f) spin.cancel(); // keep the border, stop rotating
+        anim = ValueAnimator.ofFloat(0f, 1f);
+        anim.setDuration(GLOW_MS);
+        anim.setInterpolator(null); // linear rotation
+        if (spinForever) anim.setRepeatCount(ValueAnimator.INFINITE); // scroll capture: glow while working
+        anim.addUpdateListener(a -> {
+            float t = a.getAnimatedFraction();
+            angle = 360f * t;
+            // Full strength for the first 55%, then ease out to 0 by the end of 1.6s.
+            glowAlpha = spinForever || t < 0.55f ? 1f : smooth(1f - (t - 0.55f) / 0.45f);
             invalidate();
         });
-        settle.start(); // with system animations off this jumps straight to the settled look
+        anim.start(); // with system animations off this jumps to the end: hairline only
+    }
+
+    private static float smooth(float x) {
+        x = Math.max(0f, Math.min(1f, x));
+        return x * x * (3 - 2 * x);
     }
 
     @Override
     protected void onDetachedFromWindow() {
-        if (spin != null) spin.cancel();
-        if (settle != null) settle.cancel();
+        if (anim != null) anim.cancel();
         super.onDetachedFromWindow();
     }
 
@@ -105,9 +113,7 @@ final class GlowFrame extends FrameLayout {
         if (onSwipeDown == null) return false;
         if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
             downY = e.getRawY();
-            dragging = false;
         } else if (e.getActionMasked() == MotionEvent.ACTION_MOVE && e.getRawY() - downY > slop) {
-            dragging = true;
             return true;
         }
         return false;
@@ -125,7 +131,6 @@ final class GlowFrame extends FrameLayout {
                 return true;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
-                dragging = false;
                 if (getTranslationY() > dismissDistance) onSwipeDown.run();
                 else animate().translationY(0).setDuration(150).start();
                 return true;

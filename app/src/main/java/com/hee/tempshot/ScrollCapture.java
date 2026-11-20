@@ -261,31 +261,21 @@ final class ScrollCapture {
     @SuppressLint("ClickableViewAccessibility")
     private void showPill() {
         Ui ui = new Ui(svc);
-        int margin = ui.dp(14);
-        pill = new GlowFrame(svc, ui.dark ? 0xF21C1C20 : 0xF7FFFFFF, margin, true);
-        LinearLayout row = new LinearLayout(svc);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setClipChildren(false);
-        row.setPadding(ui.dp(10), ui.dp(8), ui.dp(8), ui.dp(8));
-        pill.addView(row);
+        LinearLayout card = ui.barCard();
+        int padH = ui.dp(6), padV = ui.dp(12);
+        pill = new GlowFrame(svc, card, ui.barHairline(), Ui.BAR_RADIUS, padH, padV, true);
 
-        // Tall preview that rises out of the bar, like the page growing.
-        thumb = new ImageView(svc);
-        thumb.setImageBitmap(ShotService.thumbnail(svc, prev));
-        thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        thumb.setBackground(ui.round(ui.chip, 10));
-        thumb.setClipToOutline(true);
-        thumb.setElevation(ui.dp(4));
-        thumb.setTranslationY(-ui.dp(14));
-        row.addView(thumb, new LinearLayout.LayoutParams(ui.dp(40), ui.dp(64)));
+        thumb = ui.barThumb(ShotService.thumbnail(svc, prev));
+        card.addView(thumb);
 
-        label = ui.text("캡처 중 · 1페이지", 16, ui.text);
+        label = ui.text("캡처 중 · 1페이지", 14, ui.barText());
         label.setTypeface(Typeface.DEFAULT_BOLD);
         label.setSingleLine(true);
-        label.setPadding(ui.dp(14), 0, ui.dp(14), 0);
-        row.addView(label);
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        labelLp.leftMargin = ui.dp(10);
+        card.addView(label, labelLp);
 
-        View more = ui.iconButton(R.drawable.ic_scroll, "더 내리기 (누르고 있으면 계속)", ui.text, ui.buttonBg(), null);
+        View more = ui.iconButton(R.drawable.ic_bar_scroll, "더 내리기 (누르고 있으면 계속)", ui.barIcon(), null);
         more.setOnTouchListener((v, e) -> {
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
@@ -303,20 +293,18 @@ final class ScrollCapture {
         });
         // TalkBack users get a single step per activation.
         more.setOnClickListener(v -> step());
-        row.addView(more, new LinearLayout.LayoutParams(ui.dp(46), ui.dp(46)));
+        card.addView(more);
 
-        TextView done = ui.text("완료", 16, ui.dark ? 0xFF111111 : 0xFFFFFFFF);
+        TextView done = ui.text("완료", 13, ui.dark ? 0xFF111318 : 0xFFFFFFFF);
         done.setTypeface(Typeface.DEFAULT_BOLD);
         done.setGravity(Gravity.CENTER);
-        done.setPadding(ui.dp(20), 0, ui.dp(20), 0);
-        done.setBackground(ui.pressable(ui.dark ? 0xFFFFFFFF : 0xFF111111, 23));
+        done.setPadding(ui.dp(14), 0, ui.dp(14), 0);
+        done.setBackground(ui.pressable(ui.barText(), 12));
         done.setOnClickListener(v -> finish());
-        LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(-2, ui.dp(46));
+        LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, ui.dp(34));
         dl.leftMargin = ui.dp(6);
-        row.addView(done, dl);
+        card.addView(done, dl);
 
-        WindowManager.LayoutParams lp = ShotService.overlayParams();
-        lp.y = ui.dp(96) - margin;
-        svc.getSystemService(WindowManager.class).addView(pill, lp);
+        svc.getSystemService(WindowManager.class).addView(pill, ui.barWindow(padH, padV));
     }
 }

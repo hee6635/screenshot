@@ -333,47 +333,39 @@ public class ShotService extends AccessibilityService {
 
     // --- toolbar ---
 
-    /** Galaxy AI-style glowing bar shown after a capture: preview, delete period, scroll / crop / keep / delete. */
+    /** Floating bar shown after a capture: thumbnail, "복사됨" + delete-period chip, scroll / crop / keep / delete. */
     void showToolbar(Uri uri, Bitmap thumb, boolean canScroll) {
         hideToolbarNow();
         Ui ui = new Ui(this);
-        int margin = ui.dp(14); // room for the glow around the pill
-        GlowFrame bar = new GlowFrame(this, ui.dark ? 0xF21C1C20 : 0xF7FFFFFF, margin, false);
+        LinearLayout card = ui.barCard();
+        int padH = ui.dp(6), padV = ui.dp(12); // glow bleed; a little more vertically for the shadow
+        GlowFrame bar = new GlowFrame(this, card, ui.barHairline(), Ui.BAR_RADIUS, padH, padV, false);
         bar.onSwipeDown = this::hideToolbar;
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(ui.dp(8), ui.dp(8), ui.dp(10), ui.dp(8));
-        bar.addView(row, new android.widget.FrameLayout.LayoutParams(-1, -2));
 
-        ImageView preview = new ImageView(this);
-        preview.setImageBitmap(thumb);
-        preview.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        preview.setBackground(ui.round(ui.chip, 28));
-        preview.setClipToOutline(true);
+        ImageView preview = ui.barThumb(thumb);
         preview.setContentDescription("미리보기 열기");
         preview.setOnClickListener(v -> {
             startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(uri, "image/png")
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION));
             hideToolbarNow();
         });
-        row.addView(preview, new LinearLayout.LayoutParams(ui.dp(60), ui.dp(60)));
+        card.addView(preview);
 
         LinearLayout info = new LinearLayout(this);
         info.setOrientation(LinearLayout.VERTICAL);
-        info.setPadding(ui.dp(12), 0, ui.dp(10), 0);
-        TextView title = ui.text("복사됨", 19, ui.text);
+        TextView title = ui.text("복사됨", 14, ui.barText());
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setSingleLine(true);
         info.addView(title);
         info.addView(periodChip(ui));
-        row.addView(info, new LinearLayout.LayoutParams(0, -2, 1)); // text takes the slack, buttons sit right
+        LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        infoLp.leftMargin = ui.dp(10);
+        card.addView(info, infoLp);
 
-        LinearLayout.LayoutParams btn = new LinearLayout.LayoutParams(ui.dp(50), ui.dp(50));
-        btn.leftMargin = ui.dp(6);
         if (canScroll) {
-            row.addView(ui.iconButton(R.drawable.ic_scroll, "스크롤 캡처", ui.text, ui.buttonBg(), v -> startScroll()), btn);
+            card.addView(ui.iconButton(R.drawable.ic_bar_scroll, "스크롤 캡처", ui.barIcon(), v -> startScroll()));
         }
-        row.addView(ui.iconButton(R.drawable.ic_crop, "자르기", ui.text, ui.buttonBg(), v -> {
+        card.addView(ui.iconButton(R.drawable.ic_bar_crop, "자르기", ui.barIcon(), v -> {
             Intent crop = new Intent(this, CropActivity.class).setData(uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             if (canScroll && lastFull != null) { // element bounds only match the single-screen capture
                 crop.putParcelableArrayListExtra(CropActivity.EXTRA_CANDIDATES, lastCandidates);
@@ -384,20 +376,25 @@ public class ShotService extends AccessibilityService {
             }
             startActivity(crop);
             hideToolbarNow();
-        }), btn);
-        row.addView(ui.iconButton(R.drawable.ic_keep_outline, "보관", ui.text, ui.buttonBg(), v -> {
-            hideToolbar();
+        }));
+        card.addView(ui.iconButton(R.drawable.ic_bar_keep, "보관", ui.barIcon(), v -> {
+            ImageView keep = (ImageView) v;
             ContentValues cv = new ContentValues();
             cv.put(MediaStore.Images.Media.RELATIVE_PATH, KEEP_FOLDER);
             try {
                 getContentResolver().update(uri, cv, null, null);
+                // Only an active keep turns the bookmark blue; leave it on screen a moment to be seen.
+                keep.setImageResource(R.drawable.ic_bar_keep_filled);
+                keep.setImageTintList(android.content.res.ColorStateList.valueOf(Ui.KEEP_BLUE));
+                keep.setEnabled(false);
+                handler.removeCallbacks(hideToolbarRunnable);
+                handler.postDelayed(hideToolbarRunnable, 700);
                 toast("스크린샷 앨범에 보관했어요");
             } catch (Exception e) {
                 toast("보관 실패");
             }
-        }), btn);
-        row.addView(ui.iconButton(R.drawable.ic_delete, "삭제", ui.dark ? 0xFFB91C1C : Ui.DANGER,
-                ui.dark ? 0xFFF07575 : 0x1FE5484D, v -> {
+        }));
+        card.addView(ui.iconButton(R.drawable.ic_bar_delete, "삭제", ui.barDanger(), v -> {
             hideToolbar();
             try {
                 getContentResolver().delete(uri, null, null);
@@ -406,12 +403,9 @@ public class ShotService extends AccessibilityService {
             } catch (Exception e) {
                 toast("삭제 실패");
             }
-        }), btn);
+        }));
 
-        WindowManager.LayoutParams lp = overlayParams();
-        lp.width = WindowManager.LayoutParams.MATCH_PARENT; // near full width like the Galaxy AI bar
-        lp.y = ui.dp(96) - margin;
-        getSystemService(WindowManager.class).addView(bar, lp);
+        getSystemService(WindowManager.class).addView(bar, ui.barWindow(padH, padV));
         toolbar = bar;
         bar.setAlpha(0f);
         bar.setTranslationY(ui.dp(40));
@@ -419,19 +413,19 @@ public class ShotService extends AccessibilityService {
         handler.postDelayed(hideToolbarRunnable, TOOLBAR_MS);
     }
 
-    /** "7일 삭제 ⚙" chip; opens settings. */
+    /** "7일 삭제 ⚙": text and gear are separate views in a wrap-content row, so the gear is never cut. Opens settings. */
     private View periodChip(Ui ui) {
         LinearLayout chip = new LinearLayout(this);
         chip.setGravity(Gravity.CENTER_VERTICAL);
-        chip.setPadding(ui.dp(8), ui.dp(3), ui.dp(7), ui.dp(3));
-        chip.setBackground(ui.pressable(ui.buttonBg(), 12));
-        TextView t = ui.text(days(this) + "일 삭제", 13, ui.subText);
+        chip.setPadding(ui.dp(6), ui.dp(2), ui.dp(6), ui.dp(2));
+        chip.setBackground(ui.pressable(ui.barChip(), 6));
+        TextView t = ui.text(days(this) + "일 삭제", 11.5f, ui.barSubText());
         t.setSingleLine(true);
         chip.addView(t);
         ImageView gear = new ImageView(this);
         gear.setImageResource(R.drawable.ic_settings);
-        gear.setImageTintList(android.content.res.ColorStateList.valueOf(ui.subText));
-        LinearLayout.LayoutParams g = new LinearLayout.LayoutParams(ui.dp(13), ui.dp(13));
+        gear.setImageTintList(android.content.res.ColorStateList.valueOf(ui.barSubText()));
+        LinearLayout.LayoutParams g = new LinearLayout.LayoutParams(ui.dp(11), ui.dp(11));
         g.leftMargin = ui.dp(4);
         chip.addView(gear, g);
         chip.setContentDescription(days(this) + "일 후 삭제, 설정 열기");
@@ -440,7 +434,8 @@ public class ShotService extends AccessibilityService {
             startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             hideToolbarNow();
         });
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         lp.topMargin = ui.dp(3);
         chip.setLayoutParams(lp);
         return chip;
