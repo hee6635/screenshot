@@ -25,14 +25,26 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        try {
+            build();
+        } catch (RuntimeException e) {
+            // Show the error instead of closing, so it can be copied and reported.
+            java.io.StringWriter sw = new java.io.StringWriter();
+            e.printStackTrace(new java.io.PrintWriter(sw));
+            TextView t = new TextView(this);
+            t.setTextIsSelectable(true);
+            t.setPadding(40, 160, 40, 40);
+            t.setText("설정 화면 오류 (길게 눌러 복사해 보내 주세요)\n\n" + sw);
+            ScrollView sv = new ScrollView(this);
+            sv.addView(t);
+            setContentView(sv);
+        }
+    }
+
+    private void build() {
         ui = new Ui(this);
         getWindow().setStatusBarColor(ui.bg);
         getWindow().setNavigationBarColor(ui.bg);
-        if (!ui.dark) {
-            int light = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                    | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
-            getWindow().getInsetsController().setSystemBarsAppearance(light, light);
-        }
 
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
@@ -145,6 +157,13 @@ public class MainActivity extends Activity {
         scroll.addView(col);
         Ui.padForSystemBars(scroll, 0);
         setContentView(scroll);
+        // Only after setContentView: before it the window's insets controller can be null and crash.
+        WindowInsetsController bars = getWindow().getDecorView().getWindowInsetsController();
+        if (!ui.dark && bars != null) {
+            int light = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                    | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+            bars.setSystemBarsAppearance(light, light);
+        }
     }
 
     @Override
@@ -154,6 +173,7 @@ public class MainActivity extends Activity {
     }
 
     private void refreshStatus() {
+        if (serviceState == null) return; // build() failed; the error screen is showing
         boolean on = ShotService.instance != null;
         serviceState.setText(on ? "켜짐" : "꺼짐");
         serviceState.setTextColor(on ? Ui.ACCENT : Ui.DANGER);
