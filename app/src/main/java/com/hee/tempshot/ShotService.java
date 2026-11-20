@@ -1,6 +1,7 @@
 package com.hee.tempshot;
 
 import android.accessibilityservice.AccessibilityService;
+import android.animation.ValueAnimator;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.ContentResolver;
@@ -82,6 +83,7 @@ public class ShotService extends AccessibilityService {
         }
         takeScreenshot(Display.DEFAULT_DISPLAY, getMainExecutor(), new TakeScreenshotCallback() {
             @Override public void onSuccess(ScreenshotResult r) {
+                flash(); // after the shot, so the flash itself isn't captured
                 Bitmap hw = Bitmap.wrapHardwareBuffer(r.getHardwareBuffer(), r.getColorSpace());
                 r.getHardwareBuffer().close();
                 if (hw == null) { toast("캡처 실패"); return; }
@@ -207,6 +209,22 @@ public class ShotService extends AccessibilityService {
         bar.setTranslationY(ui.dp(40));
         bar.animate().alpha(1f).translationY(0).setDuration(220).start();
         handler.postDelayed(hideToolbarRunnable, TOOLBAR_MS);
+    }
+
+    /** Brief white flash like a camera shutter. Skipped when the user turned animations off. */
+    private void flash() {
+        if (!ValueAnimator.areAnimatorsEnabled()) return;
+        View white = new View(this);
+        white.setBackgroundColor(0xFFFFFFFF);
+        white.setAlpha(0.7f);
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT);
+        getSystemService(WindowManager.class).addView(white, lp);
+        white.animate().alpha(0f).setDuration(250).withEndAction(() -> removeBar(white)).start();
     }
 
     /** Slides the toolbar out. */
