@@ -114,6 +114,7 @@ public class ShotService extends AccessibilityService {
             lastBars = systemBars(bmp.getWidth(), bmp.getHeight());
             lastCandidates = new ArrayList<>();
             int[] bars = lastBars;
+            int w = bmp.getWidth(), h = bmp.getHeight();
             new Thread(() -> {
                 Uri uri = save(trim(bmp, bars));
                 if (uri == null) { saving = false; return; }
@@ -124,7 +125,12 @@ public class ShotService extends AccessibilityService {
                     copy(this, uri);
                     showToolbar(uri, thumb, true);
                 });
-                lastCandidates = candidates(bmp.getWidth(), bmp.getHeight(), bars);
+                try {
+                    lastCandidates = candidates(w, h, bars);
+                } catch (RuntimeException e) {
+                    // Best effort: windows can vanish mid-walk (e.g. another screen opening); crop still works by hand.
+                    lastCandidates = new ArrayList<>();
+                }
             }).start();
         }, () -> { saving = false; toast("캡처 실패"); });
     }
@@ -293,8 +299,8 @@ public class ShotService extends AccessibilityService {
         bar.onSwipeDown = this::hideToolbar;
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(ui.dp(7), ui.dp(7), ui.dp(9), ui.dp(7));
-        bar.addView(row);
+        row.setPadding(ui.dp(8), ui.dp(8), ui.dp(10), ui.dp(8));
+        bar.addView(row, new android.widget.FrameLayout.LayoutParams(-1, -2));
 
         ImageView preview = new ImageView(this);
         preview.setImageBitmap(thumb);
@@ -307,20 +313,20 @@ public class ShotService extends AccessibilityService {
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION));
             hideToolbarNow();
         });
-        row.addView(preview, new LinearLayout.LayoutParams(ui.dp(52), ui.dp(52)));
+        row.addView(preview, new LinearLayout.LayoutParams(ui.dp(60), ui.dp(60)));
 
         LinearLayout info = new LinearLayout(this);
         info.setOrientation(LinearLayout.VERTICAL);
         info.setPadding(ui.dp(12), 0, ui.dp(10), 0);
-        TextView title = ui.text("복사됨", 17, ui.text);
+        TextView title = ui.text("복사됨", 19, ui.text);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setSingleLine(true);
         info.addView(title);
         info.addView(periodChip(ui));
-        row.addView(info);
+        row.addView(info, new LinearLayout.LayoutParams(0, -2, 1)); // text takes the slack, buttons sit right
 
-        LinearLayout.LayoutParams btn = new LinearLayout.LayoutParams(ui.dp(46), ui.dp(46));
-        btn.leftMargin = ui.dp(5);
+        LinearLayout.LayoutParams btn = new LinearLayout.LayoutParams(ui.dp(50), ui.dp(50));
+        btn.leftMargin = ui.dp(6);
         if (canScroll) {
             row.addView(ui.iconButton(R.drawable.ic_scroll, "스크롤 캡처", ui.text, ui.buttonBg(), v -> startScroll()), btn);
         }
@@ -360,6 +366,7 @@ public class ShotService extends AccessibilityService {
         }), btn);
 
         WindowManager.LayoutParams lp = overlayParams();
+        lp.width = WindowManager.LayoutParams.MATCH_PARENT; // near full width like the Galaxy AI bar
         lp.y = ui.dp(96) - margin;
         getSystemService(WindowManager.class).addView(bar, lp);
         toolbar = bar;
@@ -375,7 +382,7 @@ public class ShotService extends AccessibilityService {
         chip.setGravity(Gravity.CENTER_VERTICAL);
         chip.setPadding(ui.dp(8), ui.dp(3), ui.dp(7), ui.dp(3));
         chip.setBackground(ui.pressable(ui.buttonBg(), 12));
-        TextView t = ui.text(days(this) + "일 삭제", 12, ui.subText);
+        TextView t = ui.text(days(this) + "일 삭제", 13, ui.subText);
         t.setSingleLine(true);
         chip.addView(t);
         ImageView gear = new ImageView(this);

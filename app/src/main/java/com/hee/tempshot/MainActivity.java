@@ -99,6 +99,26 @@ public class MainActivity extends Activity {
         opts.addView(trimRow);
         col.addView(opts, cardLp());
 
+        // Last crash, so it can be copied and reported
+        String crash = getSharedPreferences(ShotService.PREFS, MODE_PRIVATE).getString(TempShotApp.KEY_CRASH, null);
+        if (crash != null) {
+            col.addView(sectionTitle("최근 오류"));
+            LinearLayout err = card();
+            err.setPadding(ui.dp(20), ui.dp(16), ui.dp(20), ui.dp(16));
+            err.setBackground(ui.pressable(ui.card, 24));
+            err.addView(ui.text("앱이 비정상 종료됐어요. 눌러서 오류 내용을 복사한 뒤 보내 주세요.", 14, Ui.DANGER));
+            TextView detail = ui.text(crash.length() > 600 ? crash.substring(0, 600) + "…" : crash, 11, ui.subText);
+            detail.setPadding(0, ui.dp(8), 0, 0);
+            err.addView(detail);
+            err.setOnClickListener(v -> {
+                getSystemService(android.content.ClipboardManager.class)
+                        .setPrimaryClip(android.content.ClipData.newPlainText("오류", crash));
+                getSharedPreferences(ShotService.PREFS, MODE_PRIVATE).edit().remove(TempShotApp.KEY_CRASH).apply();
+                Toast.makeText(this, "오류 내용을 복사했어요", Toast.LENGTH_SHORT).show();
+            });
+            col.addView(err, cardLp());
+        }
+
         // How-to card
         col.addView(sectionTitle("사용법"));
         LinearLayout help = card();
