@@ -271,8 +271,10 @@ final class ScrollCapture {
         label = ui.text("캡처 중 · 1페이지", 14, ui.barText());
         label.setTypeface(Typeface.DEFAULT_BOLD);
         label.setSingleLine(true);
-        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         labelLp.leftMargin = ui.dp(10);
+        labelLp.gravity = Gravity.CENTER_VERTICAL;
         card.addView(label, labelLp);
 
         View more = ui.iconButton(R.drawable.ic_bar_scroll, "더 내리기 (누르고 있으면 계속)", ui.barIcon(), null);
@@ -293,7 +295,7 @@ final class ScrollCapture {
         });
         // TalkBack users get a single step per activation.
         more.setOnClickListener(v -> step());
-        card.addView(more);
+        card.addView(Ui.afterText(more, ui.dp(16)));
 
         TextView done = ui.text("완료", 13, ui.dark ? 0xFF111318 : 0xFFFFFFFF);
         done.setTypeface(Typeface.DEFAULT_BOLD);
@@ -302,9 +304,10 @@ final class ScrollCapture {
         done.setBackground(ui.pressable(ui.barText(), 12));
         done.setOnClickListener(v -> finish());
         LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, ui.dp(34));
-        dl.leftMargin = ui.dp(6);
+        dl.leftMargin = ui.dp(4);
+        dl.gravity = Gravity.CENTER_VERTICAL;
         card.addView(done, dl);
 
-        svc.getSystemService(WindowManager.class).addView(pill, ui.barWindow(padH, padV));
+        svc.getSystemService(WindowManager.class).addView(pill, ui.barWindow(padV));
     }
 }

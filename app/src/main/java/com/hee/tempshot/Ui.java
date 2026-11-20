@@ -81,10 +81,10 @@ final class Ui {
     // --- floating bar (after a capture / during scroll capture) ---
 
     static final int KEEP_BLUE = 0xFF2563EB;
-    static final float BAR_RADIUS = 22;
-    static final int BAR_MAX_WIDTH_DP = 420; // fold inner screen: don't stretch the bar across it
+    // 20dp outer vs 12dp thumbnail: ~ inner radius + padding (6dp vertical, 10dp left), so the curves nest.
+    static final float BAR_RADIUS = 20;
 
-    int barBg() { return dark ? 0xEB181A1F : 0xF2FFFFFF; }
+    int barBg() { return dark ? 0xF2181A1F : 0xFAFFFFFF; } // near-opaque: system "복사했어요." toast barely shows through
     int barHairline() { return dark ? 0x24FFFFFF : 0x18000000; }
     int barText() { return dark ? 0xFFF2F4F8 : 0xFF191F28; }
     int barSubText() { return dark ? 0xFFA3A8B3 : 0xFF6B7280; }
@@ -93,11 +93,11 @@ final class Ui {
     int barChip() { return dark ? 0x18FFFFFF : 0x0E000000; }
     int barRipple() { return dark ? 0x26FFFFFF : 0x1A000000; }
 
-    /** The bar's card: rounded 22dp, translucent fill, soft 10dp shadow, inner padding L10 R8 T8 B8. */
+    /** The bar's card: compact wrap-content row, rounded 20dp, soft 10dp shadow, padding L10 R10 T6 B6. */
     LinearLayout barCard() {
         LinearLayout card = new LinearLayout(c);
         card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(dp(10), dp(8), dp(8), dp(8));
+        card.setPadding(dp(10), dp(6), dp(10), dp(6));
         card.setBackground(round(barBg(), BAR_RADIUS));
         card.setElevation(dp(10));
         return card;
@@ -135,19 +135,23 @@ final class Ui {
         i.setContentDescription(label);
         i.setOnClickListener(click);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(38), dp(38));
-        lp.leftMargin = dp(2);
+        lp.leftMargin = dp(4); // the first button after the text gets 16dp from the caller
+        lp.gravity = Gravity.CENTER_VERTICAL;
         i.setLayoutParams(lp);
         return i;
     }
 
-    /** Window params for a bar card: 14dp from the screen sides, capped width, 12dp higher than before. */
-    android.view.WindowManager.LayoutParams barWindow(int padH, int padV) {
-        int screen = c.getResources().getDisplayMetrics().widthPixels;
-        int card = Math.min(screen - 2 * dp(14), dp(BAR_MAX_WIDTH_DP));
-        android.view.WindowManager.LayoutParams lp = ShotService.overlayParams();
-        lp.width = card + 2 * padH; // the window is exactly the card plus its glow/shadow bleed
-        lp.y = dp(96 + 12) - padV;
+    /** Window params for a bar: wrap-content, bottom center, clear of the home-screen dock. */
+    android.view.WindowManager.LayoutParams barWindow(int padV) {
+        android.view.WindowManager.LayoutParams lp = ShotService.overlayParams(); // WRAP_CONTENT, BOTTOM|CENTER_HORIZONTAL
+        lp.y = dp(96 + 12 + 6) - padV;
         return lp;
+    }
+
+    /** Makes v the first icon after the text block: a fixed 16dp gap instead of a stretchy spacer. */
+    static <V extends View> V afterText(V v, int gapPx) {
+        ((LinearLayout.LayoutParams) v.getLayoutParams()).leftMargin = gapPx;
+        return v;
     }
 
     /** Keeps content clear of the status and navigation bars (edge-to-edge on Android 15). */

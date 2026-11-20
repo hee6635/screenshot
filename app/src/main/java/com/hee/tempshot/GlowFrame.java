@@ -49,7 +49,7 @@ final class GlowFrame extends FrameLayout {
         setClipChildren(false);
         setClipToPadding(false);
         setPadding(padH, padV, padH, padV);
-        addView(card, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+        addView(card, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
         hairline.setStyle(Paint.Style.STROKE);
         hairline.setStrokeWidth(1 * dp);
         hairline.setColor(hairlineColor);

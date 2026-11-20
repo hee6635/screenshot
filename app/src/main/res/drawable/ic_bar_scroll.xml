@@ -1,6 +1,8 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="20dp" android:height="20dp" android:viewportWidth="24" android:viewportHeight="24">
-    <!-- strokeWidth 2 of 24 at 20dp ≈ 1.7dp line -->
+    <!-- Chevrons sit optically low; drawn 2 units (≈1.7dp at 20dp) above the 12-unit center to
+         line up with the crop / keep / delete icons. strokeWidth 2 ≈ 1.7dp line. -->
     <path android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:fillColor="#00000000"
-        android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M7,6.5L12,11.5L17,6.5M7,12.5L12,17.5L17,12.5" />
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M7,4.5L12,9.5L17,4.5M7,10.5L12,15.5L17,10.5" />
 </vector>

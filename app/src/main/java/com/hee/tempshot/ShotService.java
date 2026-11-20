@@ -358,25 +358,29 @@ public class ShotService extends AccessibilityService {
         title.setSingleLine(true);
         info.addView(title);
         info.addView(periodChip(ui));
-        LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         infoLp.leftMargin = ui.dp(10);
+        infoLp.gravity = Gravity.CENTER_VERTICAL;
         card.addView(info, infoLp);
 
+        int gap = ui.dp(16); // text block → first icon
         if (canScroll) {
-            card.addView(ui.iconButton(R.drawable.ic_bar_scroll, "스크롤 캡처", ui.barIcon(), v -> startScroll()));
+            card.addView(Ui.afterText(ui.iconButton(R.drawable.ic_bar_scroll, "스크롤 캡처", ui.barIcon(), v -> startScroll()), gap));
         }
-        card.addView(ui.iconButton(R.drawable.ic_bar_crop, "자르기", ui.barIcon(), v -> {
-            Intent crop = new Intent(this, CropActivity.class).setData(uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        ImageView crop = ui.iconButton(R.drawable.ic_bar_crop, "자르기", ui.barIcon(), v -> {
+            Intent cropIntent = new Intent(this, CropActivity.class).setData(uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             if (canScroll && lastFull != null) { // element bounds only match the single-screen capture
-                crop.putParcelableArrayListExtra(CropActivity.EXTRA_CANDIDATES, lastCandidates);
+                cropIntent.putParcelableArrayListExtra(CropActivity.EXTRA_CANDIDATES, lastCandidates);
                 if (!trimBars(this)) {
-                    crop.putExtra(CropActivity.EXTRA_INITIAL,
+                    cropIntent.putExtra(CropActivity.EXTRA_INITIAL,
                             new Rect(0, lastBars[0], lastFull.getWidth(), lastFull.getHeight() - lastBars[1]));
                 }
             }
-            startActivity(crop);
+            startActivity(cropIntent);
             hideToolbarNow();
-        }));
+        });
+        card.addView(canScroll ? crop : Ui.afterText(crop, gap));
         card.addView(ui.iconButton(R.drawable.ic_bar_keep, "보관", ui.barIcon(), v -> {
             ImageView keep = (ImageView) v;
             ContentValues cv = new ContentValues();
@@ -405,7 +409,7 @@ public class ShotService extends AccessibilityService {
             }
         }));
 
-        getSystemService(WindowManager.class).addView(bar, ui.barWindow(padH, padV));
+        getSystemService(WindowManager.class).addView(bar, ui.barWindow(padV));
         toolbar = bar;
         bar.setAlpha(0f);
         bar.setTranslationY(ui.dp(40));
