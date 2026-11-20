@@ -70,6 +70,7 @@ final class Ui {
         i.setImageTintList(ColorStateList.valueOf(fg));
         b.addView(i, new LinearLayout.LayoutParams(dp(24), dp(24)));
         TextView t = text(label, 11, fg);
+        t.setSingleLine(true); // "자르기" was wrapping to "자르" on large font settings
         t.setPadding(0, dp(3), 0, 0);
         b.addView(t);
         b.setContentDescription(label);

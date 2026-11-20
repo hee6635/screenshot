@@ -144,7 +144,7 @@ public class ShotService extends AccessibilityService {
         LinearLayout bar = new LinearLayout(this);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8));
-        bar.setBackground(ui.round((ui.card & 0x00FFFFFF) | 0xF2000000, 28));
+        bar.setBackground(ui.round(ui.card, 28)); // opaque: translucent let the shadow show through
         bar.setElevation(ui.dp(8));
 
         ImageView preview = new ImageView(this);
@@ -166,6 +166,7 @@ public class ShotService extends AccessibilityService {
         info.setPadding(ui.dp(12), 0, ui.dp(8), 0);
         info.addView(ui.text("복사됨", 14, ui.text));
         info.addView(ui.text(days(this) + "일 후 삭제", 12, ui.subText));
+        for (int i = 0; i < info.getChildCount(); i++) ((android.widget.TextView) info.getChildAt(i)).setSingleLine(true);
         bar.addView(info);
 
         bar.addView(ui.action(R.drawable.ic_crop, "자르기", ui.text, v -> {
