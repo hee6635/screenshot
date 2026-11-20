@@ -12,6 +12,7 @@ import android.view.WindowInsetsController;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -77,6 +78,27 @@ public class MainActivity extends Activity {
         col.addView(period, cardLp());
         renderChips();
 
+        // Capture options card
+        col.addView(sectionTitle("캡처"));
+        LinearLayout opts = card();
+        LinearLayout trimRow = new LinearLayout(this);
+        trimRow.setGravity(Gravity.CENTER_VERTICAL);
+        trimRow.setPadding(ui.dp(20), ui.dp(16), ui.dp(16), ui.dp(16));
+        LinearLayout trimTexts = new LinearLayout(this);
+        trimTexts.setOrientation(LinearLayout.VERTICAL);
+        trimTexts.addView(ui.text("상태바·하단바 숨기기", 17, ui.text));
+        trimTexts.addView(ui.text("시계·배터리 줄과 하단 내비게이션 바를 빼고 저장해요 (스크롤 캡처 포함)", 13, ui.subText));
+        trimRow.addView(trimTexts, new LinearLayout.LayoutParams(0, -2, 1));
+        Switch trim = new Switch(this);
+        trim.setChecked(ShotService.trimBars(this));
+        trim.setOnCheckedChangeListener((v, on) -> getSharedPreferences(ShotService.PREFS, MODE_PRIVATE)
+                .edit().putBoolean(ShotService.KEY_TRIM, on).apply());
+        trimRow.addView(trim);
+        trimRow.setBackground(ui.pressable(ui.card, 24));
+        trimRow.setOnClickListener(v -> trim.toggle());
+        opts.addView(trimRow);
+        col.addView(opts, cardLp());
+
         // How-to card
         col.addView(sectionTitle("사용법"));
         LinearLayout help = card();
@@ -84,7 +106,9 @@ public class MainActivity extends Activity {
         String[][] steps = {
                 {"제스처로 찍기", "원핸드 오퍼레이션+ → 제스처 동작 → 앱 실행 → '스샷 찍기'"},
                 {"타일로 찍기", "빠른 설정 편집에서 '임시 스샷' 타일 추가"},
-                {"찍은 뒤", "자동으로 복사돼요. 아래 툴바에서 자르기 · 보관 · 삭제"},
+                {"찍은 뒤", "자동으로 복사돼요. 아래 툴바에서 스크롤 캡처 · 자르기 · 보관 · 삭제. 툴바는 아래로 쓸어서 닫아요"},
+                {"스크롤 캡처", "⌄⌄를 누를 때마다 한 번 내려서 이어 붙여요. 누르고 있으면 계속 내려가요. 다 되면 '완료'"},
+                {"자르기", "사진이나 카드 같은 영역을 탭하면 범위가 자동으로 맞춰져요"},
                 {"앨범", "갤러리의 'TempShots' 앨범에 모여요. 보관하면 스크린샷 앨범으로 옮겨져 지워지지 않아요"},
                 {"남길 스샷", "갤럭시 기본 캡처로 찍은 건 이 앱이 건드리지 않아요"},
         };

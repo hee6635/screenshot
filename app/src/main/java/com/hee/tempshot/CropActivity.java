@@ -22,8 +22,11 @@ import android.widget.Toast;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
 
 public class CropActivity extends Activity {
+    static final String EXTRA_CANDIDATES = "candidates"; // ArrayList<Rect> of on-screen elements, image coords
+    static final String EXTRA_INITIAL = "initial";       // Rect to start the crop with
     private Uri uri;
     private Bitmap bitmap;
 
@@ -45,7 +48,16 @@ public class CropActivity extends Activity {
         getWindow().setStatusBarColor(Color.BLACK);
         getWindow().setNavigationBarColor(Color.BLACK);
         Ui ui = new Ui(this);
-        CropView crop = new CropView(this, bitmap);
+        @SuppressWarnings("deprecation") // the typed overloads need API 33
+        ArrayList<Rect> cands = getIntent().getParcelableArrayListExtra(EXTRA_CANDIDATES);
+        @SuppressWarnings("deprecation")
+        Rect initial = getIntent().getParcelableExtra(EXTRA_INITIAL);
+        CropView crop = new CropView(this, bitmap, initial, cands != null ? cands : new ArrayList<>());
+
+        android.widget.TextView hint = ui.text(cands != null && !cands.isEmpty()
+                ? "사진이나 영역을 탭하면 자동으로 맞춰요" : "모서리를 끌어서 범위를 정하세요", 13, 0xFFB0B0B5);
+        hint.setGravity(Gravity.CENTER);
+        hint.setPadding(0, ui.dp(12), 0, ui.dp(4));
 
         LinearLayout bar = new LinearLayout(this);
         bar.setGravity(Gravity.CENTER);
@@ -57,6 +69,7 @@ public class CropActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.BLACK);
+        root.addView(hint);
         root.addView(crop, new LinearLayout.LayoutParams(-1, 0, 1));
         root.addView(bar, new LinearLayout.LayoutParams(-1, ui.dp(72)));
         Ui.padForSystemBars(root, 0);
@@ -85,7 +98,7 @@ public class CropActivity extends Activity {
         finish();
         if (!ok) return;
         ShotService.copy(this, uri);
-        if (ShotService.instance != null) ShotService.instance.showToolbar(uri, ShotService.thumbnail(this, out));
+        if (ShotService.instance != null) ShotService.instance.showToolbar(uri, ShotService.thumbnail(this, out), false);
     }
 
     /** Shows the image fit to the view with a draggable crop rectangle (edges, corners, or move). */
@@ -97,13 +110,20 @@ public class CropActivity extends Activity {
         private final Paint dim = new Paint(), line = new Paint(), handle = new Paint();
         private final float touch, minSize;
         private final Paint grid = new Paint();
+        private final Rect initial;
+        private final ArrayList<Rect> candidates;
+        private final float tapSlop;
         private int mode;
-        private float lastX, lastY;
+        private float lastX, lastY, downX, downY;
+        private boolean moved;
 
-        CropView(Context c, Bitmap bmp) {
+        CropView(Context c, Bitmap bmp, Rect initial, ArrayList<Rect> candidates) {
             super(c);
             this.bmp = bmp;
+            this.initial = initial;
+            this.candidates = candidates;
             float dp = c.getResources().getDisplayMetrics().density;
+            tapSlop = 8 * dp;
             touch = 32 * dp;
             minSize = 48 * dp;
             dim.setColor(0x99000000);
@@ -123,7 +143,30 @@ public class CropActivity extends Activity {
             float s = Math.min((w - 2 * pad) / bmp.getWidth(), (h - 2 * pad) / bmp.getHeight());
             float dw = bmp.getWidth() * s, dh = bmp.getHeight() * s;
             img.set((w - dw) / 2, (h - dh) / 2, (w + dw) / 2, (h + dh) / 2);
-            crop.set(img);
+            if (initial != null) toView(initial, crop);
+            else crop.set(img);
+        }
+
+        private void toView(Rect r, RectF out) {
+            float s = img.width() / bmp.getWidth();
+            out.set(img.left + r.left * s, img.top + r.top * s, img.left + r.right * s, img.top + r.bottom * s);
+            out.intersect(img);
+        }
+
+        /** Snaps the crop to the smallest on-screen element under the tap. */
+        private void snapTo(float x, float y) {
+            float s = bmp.getWidth() / img.width();
+            int bx = Math.round((x - img.left) * s), by = Math.round((y - img.top) * s);
+            Rect best = null;
+            for (Rect r : candidates) {
+                if (r.contains(bx, by) && (best == null || (long) r.width() * r.height() < (long) best.width() * best.height())) {
+                    best = r;
+                }
+            }
+            if (best != null) {
+                toView(best, crop);
+                invalidate();
+            }
         }
 
         @Override
@@ -162,10 +205,13 @@ public class CropActivity extends Activity {
                     if (Math.abs(y - crop.top) < touch) mode |= T;
                     else if (Math.abs(y - crop.bottom) < touch) mode |= B;
                     if (mode == 0 && crop.contains(x, y)) mode = MOVE;
-                    lastX = x;
-                    lastY = y;
+                    lastX = downX = x;
+                    lastY = downY = y;
+                    moved = false;
                     return true;
                 case MotionEvent.ACTION_MOVE:
+                    if (!moved && Math.hypot(x - downX, y - downY) < tapSlop) return true;
+                    moved = true;
                     float dx = x - lastX, dy = y - lastY;
                     lastX = x;
                     lastY = y;
@@ -182,6 +228,10 @@ public class CropActivity extends Activity {
                     invalidate();
                     return true;
                 case MotionEvent.ACTION_UP:
+                    if (!moved) snapTo(x, y);
+                    mode = 0;
+                    invalidate();
+                    return true;
                 case MotionEvent.ACTION_CANCEL:
                     mode = 0;
                     invalidate();

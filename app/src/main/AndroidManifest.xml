@@ -3,6 +3,7 @@
     <application
         android:label="임시 스샷"
         android:icon="@mipmap/ic_launcher"
+        android:largeHeap="true"
         android:theme="@android:style/Theme.DeviceDefault.DayNight">
 
         <activity android:name=".MainActivity" android:exported="true">

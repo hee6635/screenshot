@@ -78,6 +78,23 @@ final class Ui {
         return b;
     }
 
+    /** Round icon-only button; the label is kept for TalkBack. */
+    ImageView iconButton(int icon, String label, int fg, int bg, View.OnClickListener click) {
+        ImageView i = new ImageView(c);
+        i.setImageResource(icon);
+        i.setImageTintList(ColorStateList.valueOf(fg));
+        i.setPadding(dp(11), dp(11), dp(11), dp(11));
+        i.setBackground(pressable(bg, 24));
+        i.setContentDescription(label);
+        i.setOnClickListener(click);
+        return i;
+    }
+
+    /** Neutral round-button background for overlays. */
+    int buttonBg() {
+        return dark ? 0x26FFFFFF : 0x0D000000;
+    }
+
     /** Keeps content clear of the status and navigation bars (edge-to-edge on Android 15). */
     static void padForSystemBars(View v, int extraBottom) {
         int l = v.getPaddingLeft(), t = v.getPaddingTop(), r = v.getPaddingRight(), b = v.getPaddingBottom();
