@@ -1,82 +1,193 @@
 package com.hee.tempshot;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
-import android.widget.Button;
+import android.view.View;
+import android.view.WindowInsetsController;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
 public class MainActivity extends Activity {
-    private TextView status;
+    private static final int[] PRESETS = {1, 3, 7, 30};
+    private Ui ui;
+    private TextView headerStatus, serviceState;
+    private LinearLayout chips;
 
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
-        int pad = (int) (24 * getResources().getDisplayMetrics().density);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(pad, pad, pad, pad);
+        ui = new Ui(this);
+        getWindow().setStatusBarColor(ui.bg);
+        getWindow().setNavigationBarColor(ui.bg);
+        if (!ui.dark) {
+            int light = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                    | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+            getWindow().getInsetsController().setSystemBarsAppearance(light, light);
+        }
 
-        TextView label = new TextView(this);
-        label.setText("임시 스샷 자동 삭제 기간 (일)");
-        label.setTextSize(18);
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(ui.dp(16), 0, ui.dp(16), ui.dp(24));
 
-        EditText days = new EditText(this);
-        days.setInputType(InputType.TYPE_CLASS_NUMBER);
-        days.setText(String.valueOf(ShotService.days(this)));
-        days.setGravity(Gravity.CENTER);
+        // One UI-style large header that takes the top of the screen.
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.VERTICAL);
+        header.setGravity(Gravity.CENTER);
+        header.addView(ui.text("임시 스샷", 34, ui.text));
+        headerStatus = ui.text("", 14, ui.subText);
+        headerStatus.setPadding(0, ui.dp(8), 0, 0);
+        header.addView(headerStatus);
+        col.addView(header, new LinearLayout.LayoutParams(-1,
+                (int) (getResources().getDisplayMetrics().heightPixels * 0.28f)));
 
-        Button save = new Button(this);
-        save.setText("저장");
-        save.setOnClickListener(v -> {
-            int d;
-            try { d = Integer.parseInt(days.getText().toString().trim()); } catch (NumberFormatException e) { d = 0; }
-            if (d < 1 || d > 3650) {
-                Toast.makeText(this, "1~3650 사이로 입력해 주세요", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            getSharedPreferences(ShotService.PREFS, MODE_PRIVATE).edit().putInt(ShotService.KEY_DAYS, d).apply();
-            int n = ShotService.cleanup(this);
-            Toast.makeText(this, d + "일로 저장" + (n > 0 ? ", " + n + "개 삭제" : ""), Toast.LENGTH_SHORT).show();
-        });
+        // Service card
+        LinearLayout service = card();
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(ui.dp(20), ui.dp(16), ui.dp(20), ui.dp(16));
+        row.setBackground(ui.pressable(ui.card, 24));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.addView(ui.text("접근성 서비스", 17, ui.text));
+        TextView hint = ui.text("눌러서 '설치된 앱 → 임시 스샷 캡처' 켜기", 13, ui.subText);
+        texts.addView(hint);
+        row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
+        serviceState = ui.text("", 15, Ui.ACCENT);
+        row.addView(serviceState);
+        row.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
+        service.addView(row);
+        col.addView(service, cardLp());
 
-        Button a11y = new Button(this);
-        a11y.setText("접근성 설정 열기");
-        a11y.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
+        // Delete period card
+        col.addView(sectionTitle("자동 삭제"));
+        LinearLayout period = card();
+        period.setPadding(ui.dp(20), ui.dp(16), ui.dp(20), ui.dp(16));
+        period.addView(ui.text("찍은 뒤 이 기간이 지나면 지워져요", 14, ui.subText));
+        chips = new LinearLayout(this);
+        chips.setPadding(0, ui.dp(12), 0, 0);
+        period.addView(chips);
+        col.addView(period, cardLp());
+        renderChips();
 
-        TextView help = new TextView(this);
-        help.setPadding(0, pad, 0, 0);
-        help.setText("사용법\n"
-                + "1. [접근성 설정 열기] → 설치된 앱 → '임시 스샷 캡처' 켜기\n"
-                + "2. 캡처하는 방법\n"
-                + "   · 화면에 뜨는 접근성 버튼 누르기\n"
-                + "   · 빠른 설정 편집에서 '임시 스샷' 타일 추가 후 누르기\n"
-                + "   · 원핸드 오퍼레이션+ 제스처 → 앱 실행 → '스샷 찍기'\n"
-                + "3. 찍으면 아래에 툴바가 떠요: 자르기 / 보관(갤러리 스크린샷 폴더로 이동, 자동 삭제 안 됨) / 삭제\n"
-                + "4. 사진은 Pictures/TempShots에 저장되고, 설정한 기간이 지나면 자동으로 삭제돼요.\n\n"
-                + "남길 스샷은 갤럭시 기본 캡처로 찍으세요. 기본 캡처는 이 앱이 건드리지 않아요.");
+        // How-to card
+        col.addView(sectionTitle("사용법"));
+        LinearLayout help = card();
+        help.setPadding(ui.dp(20), ui.dp(16), ui.dp(20), ui.dp(16));
+        String[][] steps = {
+                {"제스처로 찍기", "원핸드 오퍼레이션+ → 제스처 동작 → 앱 실행 → '스샷 찍기'"},
+                {"타일로 찍기", "빠른 설정 편집에서 '임시 스샷' 타일 추가"},
+                {"찍은 뒤", "자동으로 복사돼요. 아래 툴바에서 자르기 · 보관 · 삭제"},
+                {"앨범", "갤러리의 'TempShots' 앨범에 모여요. 보관하면 스크린샷 앨범으로 옮겨져 지워지지 않아요"},
+                {"남길 스샷", "갤럭시 기본 캡처로 찍은 건 이 앱이 건드리지 않아요"},
+        };
+        for (int i = 0; i < steps.length; i++) {
+            TextView t = ui.text(steps[i][0], 15, ui.text);
+            if (i > 0) t.setPadding(0, ui.dp(14), 0, 0);
+            help.addView(t);
+            help.addView(ui.text(steps[i][1], 13, ui.subText));
+        }
+        col.addView(help, cardLp());
 
-        status = new TextView(this);
-        status.setPadding(0, pad, 0, 0);
-
-        root.addView(label);
-        root.addView(days);
-        root.addView(save);
-        root.addView(a11y);
-        root.addView(status);
-        root.addView(help);
-        setContentView(root);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(ui.bg);
+        scroll.addView(col);
+        Ui.padForSystemBars(scroll, 0);
+        setContentView(scroll);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        status.setText(ShotService.instance != null ? "✅ 서비스 켜짐" : "⚠️ 서비스 꺼짐 — 접근성 설정에서 켜 주세요");
+        refreshStatus();
+    }
+
+    private void refreshStatus() {
+        boolean on = ShotService.instance != null;
+        serviceState.setText(on ? "켜짐" : "꺼짐");
+        serviceState.setTextColor(on ? Ui.ACCENT : Ui.DANGER);
+        headerStatus.setText(on ? ShotService.days(this) + "일 뒤 자동 삭제 중" : "접근성 서비스를 켜 주세요");
+    }
+
+    private void renderChips() {
+        chips.removeAllViews();
+        int cur = ShotService.days(this);
+        boolean custom = true;
+        for (int d : PRESETS) {
+            chips.addView(chip(d + "일", d == cur, v -> setDays(d)), chipLp());
+            if (d == cur) custom = false;
+        }
+        chips.addView(chip(custom ? cur + "일" : "직접", custom, v -> askCustom()), chipLp());
+    }
+
+    private void askCustom() {
+        EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setHint("1~3650");
+        input.setGravity(Gravity.CENTER);
+        new AlertDialog.Builder(this)
+                .setTitle("며칠 뒤에 지울까요?")
+                .setView(input)
+                .setPositiveButton("확인", (dlg, w) -> {
+                    int d;
+                    try { d = Integer.parseInt(input.getText().toString().trim()); } catch (NumberFormatException e) { d = 0; }
+                    if (d < 1 || d > 3650) {
+                        Toast.makeText(this, "1~3650 사이로 입력해 주세요", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    setDays(d);
+                })
+                .setNegativeButton("취소", null)
+                .show();
+    }
+
+    private void setDays(int d) {
+        getSharedPreferences(ShotService.PREFS, MODE_PRIVATE).edit().putInt(ShotService.KEY_DAYS, d).apply();
+        int n = ShotService.cleanup(this);
+        if (n > 0) Toast.makeText(this, "지난 스샷 " + n + "개를 지웠어요", Toast.LENGTH_SHORT).show();
+        renderChips();
+        refreshStatus();
+    }
+
+    private TextView chip(String label, boolean selected, View.OnClickListener click) {
+        TextView t = ui.text(label, 14, selected ? 0xFFFFFFFF : ui.text);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(0, ui.dp(10), 0, ui.dp(10));
+        t.setBackground(ui.pressable(selected ? Ui.ACCENT : ui.chip, 20));
+        t.setOnClickListener(click);
+        return t;
+    }
+
+    private LinearLayout.LayoutParams chipLp() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1);
+        lp.setMargins(ui.dp(3), 0, ui.dp(3), 0);
+        return lp;
+    }
+
+    private LinearLayout card() {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackground(ui.round(ui.card, 24));
+        c.setClipToOutline(true);
+        return c;
+    }
+
+    private LinearLayout.LayoutParams cardLp() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.bottomMargin = ui.dp(8);
+        return lp;
+    }
+
+    private TextView sectionTitle(String s) {
+        TextView t = ui.text(s, 13, ui.subText);
+        t.setPadding(ui.dp(20), ui.dp(16), 0, ui.dp(8));
+        return t;
     }
 }

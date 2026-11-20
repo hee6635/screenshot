@@ -17,8 +17,6 @@ import android.provider.MediaStore;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
-import android.widget.Button;
-import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
@@ -44,26 +42,24 @@ public class CropActivity extends Activity {
             return;
         }
 
+        getWindow().setStatusBarColor(Color.BLACK);
+        getWindow().setNavigationBarColor(Color.BLACK);
+        Ui ui = new Ui(this);
         CropView crop = new CropView(this, bitmap);
-        Button cancel = new Button(this);
-        cancel.setText("취소");
-        cancel.setOnClickListener(v -> finish());
-        Button save = new Button(this);
-        save.setText("자르기 저장");
-        save.setOnClickListener(v -> save(crop.cropInBitmap()));
 
         LinearLayout bar = new LinearLayout(this);
         bar.setGravity(Gravity.CENTER);
-        bar.addView(cancel, new LinearLayout.LayoutParams(0, -2, 1));
-        bar.addView(save, new LinearLayout.LayoutParams(0, -2, 1));
+        bar.addView(ui.action(R.drawable.ic_close, "취소", Color.WHITE, v -> finish()),
+                new LinearLayout.LayoutParams(0, -2, 1));
+        bar.addView(ui.action(R.drawable.ic_check, "완료", Ui.ACCENT, v -> save(crop.cropInBitmap())),
+                new LinearLayout.LayoutParams(0, -2, 1));
 
-        FrameLayout root = new FrameLayout(this);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.BLACK);
-        int barH = (int) (72 * getResources().getDisplayMetrics().density);
-        FrameLayout.LayoutParams cropLp = new FrameLayout.LayoutParams(-1, -1);
-        cropLp.bottomMargin = barH;
-        root.addView(crop, cropLp);
-        root.addView(bar, new FrameLayout.LayoutParams(-1, barH, Gravity.BOTTOM));
+        root.addView(crop, new LinearLayout.LayoutParams(-1, 0, 1));
+        root.addView(bar, new LinearLayout.LayoutParams(-1, ui.dp(72)));
+        Ui.padForSystemBars(root, 0);
         setContentView(root);
     }
 
@@ -71,6 +67,7 @@ public class CropActivity extends Activity {
         Bitmap out = Bitmap.createBitmap(bitmap, r.left, r.top, r.width(), r.height());
         ContentResolver cr = getContentResolver();
         ContentValues v = new ContentValues();
+        boolean ok = false;
         try {
             // Pending on → write → pending off makes MediaStore rescan the new size.
             v.put(MediaStore.Images.Media.IS_PENDING, 1);
@@ -78,6 +75,7 @@ public class CropActivity extends Activity {
             try (OutputStream os = cr.openOutputStream(uri, "wt")) {
                 out.compress(Bitmap.CompressFormat.PNG, 100, os);
             }
+            ok = true;
         } catch (Exception e) {
             Toast.makeText(this, "저장 실패", Toast.LENGTH_SHORT).show();
         } finally {
@@ -85,7 +83,9 @@ public class CropActivity extends Activity {
             cr.update(uri, v, null, null);
         }
         finish();
-        if (ShotService.instance != null) ShotService.instance.showToolbar(uri);
+        if (!ok) return;
+        ShotService.copy(this, uri);
+        if (ShotService.instance != null) ShotService.instance.showToolbar(uri, ShotService.thumbnail(this, out));
     }
 
     /** Shows the image fit to the view with a draggable crop rectangle (edges, corners, or move). */
@@ -96,6 +96,7 @@ public class CropActivity extends Activity {
         private final RectF crop = new RectF();  // crop rect in view coords
         private final Paint dim = new Paint(), line = new Paint(), handle = new Paint();
         private final float touch, minSize;
+        private final Paint grid = new Paint();
         private int mode;
         private float lastX, lastY;
 
@@ -111,6 +112,9 @@ public class CropActivity extends Activity {
             line.setStrokeWidth(2 * dp);
             handle.setColor(Color.WHITE);
             handle.setStrokeWidth(5 * dp);
+            handle.setStrokeCap(Paint.Cap.ROUND);
+            grid.setColor(0x80FFFFFF);
+            grid.setStrokeWidth(1 * dp);
         }
 
         @Override
@@ -130,6 +134,13 @@ public class CropActivity extends Activity {
             c.drawRect(img.left, crop.top, crop.left, crop.bottom, dim);
             c.drawRect(crop.right, crop.top, img.right, crop.bottom, dim);
             c.drawRect(crop, line);
+            if (mode != 0) { // rule-of-thirds guide while dragging
+                for (int i = 1; i < 3; i++) {
+                    float gx = crop.left + crop.width() * i / 3, gy = crop.top + crop.height() * i / 3;
+                    c.drawLine(gx, crop.top, gx, crop.bottom, grid);
+                    c.drawLine(crop.left, gy, crop.right, gy, grid);
+                }
+            }
             float k = touch * 0.6f;
             for (float x : new float[]{crop.left, crop.right}) {
                 for (float y : new float[]{crop.top, crop.bottom}) {
@@ -168,6 +179,11 @@ public class CropActivity extends Activity {
                         if ((mode & T) != 0) crop.top = clamp(crop.top + dy, img.top, crop.bottom - minSize);
                         if ((mode & B) != 0) crop.bottom = clamp(crop.bottom + dy, crop.top + minSize, img.bottom);
                     }
+                    invalidate();
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    mode = 0;
                     invalidate();
                     return true;
             }

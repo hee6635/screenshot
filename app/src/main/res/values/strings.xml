@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="service_desc">접근성 버튼이나 빠른 설정 타일로 임시 스크린샷을 찍어요. 설정한 기간이 지나면 자동으로 삭제돼요. 화면 내용은 기기에만 저장되고 어디에도 전송되지 않아요.</string>
+    <string name="service_desc">원핸드 오퍼레이션+ 제스처나 빠른 설정 타일로 임시 스크린샷을 찍어요. 설정한 기간이 지나면 자동으로 삭제돼요. 화면 내용은 기기에만 저장되고 어디에도 전송되지 않아요.</string>
 </resources>

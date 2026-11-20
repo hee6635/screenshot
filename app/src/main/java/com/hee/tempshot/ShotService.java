@@ -1,16 +1,15 @@
 package com.hee.tempshot;
 
-import android.accessibilityservice.AccessibilityButtonController;
 import android.accessibilityservice.AccessibilityService;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Bitmap;
-import android.graphics.Color;
 import android.graphics.PixelFormat;
-import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
@@ -20,8 +19,8 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.OutputStream;
@@ -53,10 +52,6 @@ public class ShotService extends AccessibilityService {
     @Override
     protected void onServiceConnected() {
         instance = this;
-        getAccessibilityButtonController().registerAccessibilityButtonCallback(
-                new AccessibilityButtonController.AccessibilityButtonCallback() {
-                    @Override public void onClicked(AccessibilityButtonController c) { capture(); }
-                });
         handler.post(cleanupLoop);
     }
 
@@ -64,7 +59,7 @@ public class ShotService extends AccessibilityService {
     public boolean onUnbind(android.content.Intent intent) {
         instance = null;
         handler.removeCallbacks(cleanupLoop);
-        hideToolbar();
+        hideToolbarNow();
         return super.onUnbind(intent);
     }
 
@@ -81,7 +76,7 @@ public class ShotService extends AccessibilityService {
     void capture() {
         if (toolbar != null) {
             // Remove the previous toolbar and give the screen a frame to redraw without it.
-            hideToolbar();
+            hideToolbarNow();
             handler.postDelayed(this::capture, 150);
             return;
         }
@@ -109,6 +104,7 @@ public class ShotService extends AccessibilityService {
         v.put(MediaStore.Images.Media.IS_PENDING, 1);
         Uri uri = cr.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v);
         if (uri == null) { toast("저장 실패"); return; }
+        Bitmap thumb = thumbnail(this, bmp);
         try (OutputStream out = cr.openOutputStream(uri)) {
             bmp.compress(Bitmap.CompressFormat.PNG, 100, out);
         } catch (Exception e) {
@@ -121,51 +117,82 @@ public class ShotService extends AccessibilityService {
         v.clear();
         v.put(MediaStore.Images.Media.IS_PENDING, 0);
         cr.update(uri, v, null, null);
-        handler.post(() -> showToolbar(uri));
+        handler.post(() -> {
+            copy(this, uri);
+            showToolbar(uri, thumb);
+        });
     }
 
-    /** Bottom bar shown after a capture: crop / keep / delete / close. Auto-hides. */
-    void showToolbar(Uri uri) {
-        hideToolbar();
-        float dp = getResources().getDisplayMetrics().density;
+    static Bitmap thumbnail(Context c, Bitmap src) {
+        int h = Math.round(72 * c.getResources().getDisplayMetrics().density);
+        int w = Math.max(1, Math.round((float) src.getWidth() * h / src.getHeight()));
+        return Bitmap.createScaledBitmap(src, w, h, true);
+    }
+
+    /** Puts the image on the clipboard so it can be pasted right away. */
+    static void copy(Context c, Uri uri) {
+        c.getSystemService(ClipboardManager.class)
+                .setPrimaryClip(ClipData.newUri(c.getContentResolver(), "스크린샷", uri));
+    }
+
+    /** Galaxy-style bottom bar shown after a capture: preview, crop / keep / delete / close. Auto-hides. */
+    void showToolbar(Uri uri, Bitmap thumb) {
+        hideToolbarNow();
+        Ui ui = new Ui(this);
         LinearLayout bar = new LinearLayout(this);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        int p = (int) (8 * dp);
-        bar.setPadding(p, p / 2, p, p / 2);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xEE222222);
-        bg.setCornerRadius(28 * dp);
-        bar.setBackground(bg);
+        bar.setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8));
+        bar.setBackground(ui.round((ui.card & 0x00FFFFFF) | 0xF2000000, 28));
+        bar.setElevation(ui.dp(8));
 
-        TextView info = new TextView(this);
-        info.setText(days(this) + "일 후 삭제");
-        info.setTextColor(0xFFAAAAAA);
-        info.setTextSize(12);
-        info.setPadding(p, 0, p, 0);
+        ImageView preview = new ImageView(this);
+        preview.setImageBitmap(thumb);
+        preview.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        preview.setBackground(ui.round(ui.chip, 12));
+        preview.setClipToOutline(true);
+        preview.setContentDescription("미리보기 열기");
+        preview.setOnClickListener(v -> {
+            hideToolbarNow();
+            startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(uri, "image/png")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION));
+        });
+        int ph = ui.dp(72);
+        bar.addView(preview, new LinearLayout.LayoutParams(Math.min(ph, thumb.getWidth()), ph));
+
+        LinearLayout info = new LinearLayout(this);
+        info.setOrientation(LinearLayout.VERTICAL);
+        info.setPadding(ui.dp(12), 0, ui.dp(8), 0);
+        info.addView(ui.text("복사됨", 14, ui.text));
+        info.addView(ui.text(days(this) + "일 후 삭제", 12, ui.subText));
         bar.addView(info);
 
-        addButton(bar, "자르기", () -> {
-            hideToolbar();
+        bar.addView(ui.action(R.drawable.ic_crop, "자르기", ui.text, v -> {
+            hideToolbarNow();
             startActivity(new Intent(this, CropActivity.class).setData(uri)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        });
-        addButton(bar, "보관", () -> {
+        }));
+        bar.addView(ui.action(R.drawable.ic_keep, "보관", Ui.ACCENT, v -> {
             hideToolbar();
-            ContentValues v = new ContentValues();
-            v.put(MediaStore.Images.Media.RELATIVE_PATH, KEEP_FOLDER);
+            ContentValues cv = new ContentValues();
+            cv.put(MediaStore.Images.Media.RELATIVE_PATH, KEEP_FOLDER);
             try {
-                getContentResolver().update(uri, v, null, null);
-                toast("보관함(스크린샷)으로 옮겼어요");
+                getContentResolver().update(uri, cv, null, null);
+                toast("스크린샷 폴더에 보관했어요");
             } catch (Exception e) {
                 toast("보관 실패");
             }
-        });
-        addButton(bar, "삭제", () -> {
+        }));
+        bar.addView(ui.action(R.drawable.ic_delete, "삭제", Ui.DANGER, v -> {
             hideToolbar();
-            try { getContentResolver().delete(uri, null, null); toast("삭제했어요"); }
-            catch (Exception e) { toast("삭제 실패"); }
-        });
-        addButton(bar, "✕", this::hideToolbar);
+            try {
+                getContentResolver().delete(uri, null, null);
+                getSystemService(ClipboardManager.class).clearPrimaryClip();
+                toast("삭제했어요");
+            } catch (Exception e) {
+                toast("삭제 실패");
+            }
+        }));
+        bar.addView(ui.action(R.drawable.ic_close, "닫기", ui.subText, v -> hideToolbar()));
 
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
@@ -173,29 +200,36 @@ public class ShotService extends AccessibilityService {
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-        lp.y = (int) (96 * dp);
+        lp.y = ui.dp(72);
         getSystemService(WindowManager.class).addView(bar, lp);
         toolbar = bar;
+        bar.setAlpha(0f);
+        bar.setTranslationY(ui.dp(40));
+        bar.animate().alpha(1f).translationY(0).setDuration(220).start();
         handler.postDelayed(hideToolbarRunnable, TOOLBAR_MS);
     }
 
-    private void addButton(LinearLayout bar, String label, Runnable action) {
-        int p = (int) (12 * getResources().getDisplayMetrics().density);
-        TextView b = new TextView(this);
-        b.setText(label);
-        b.setTextColor(Color.WHITE);
-        b.setTextSize(15);
-        b.setPadding(p, p, p, p);
-        b.setOnClickListener(v -> action.run());
-        bar.addView(b);
-    }
-
+    /** Slides the toolbar out. */
     void hideToolbar() {
         handler.removeCallbacks(hideToolbarRunnable);
+        View bar = toolbar;
+        if (bar == null) return;
+        toolbar = null;
+        bar.animate().alpha(0f).translationY(bar.getHeight() / 2f).setDuration(180)
+                .withEndAction(() -> removeBar(bar)).start();
+    }
+
+    /** Removes the toolbar immediately (before a capture or opening another screen). */
+    void hideToolbarNow() {
+        handler.removeCallbacks(hideToolbarRunnable);
         if (toolbar != null) {
-            getSystemService(WindowManager.class).removeView(toolbar);
+            removeBar(toolbar);
             toolbar = null;
         }
+    }
+
+    private void removeBar(View bar) {
+        if (bar.isAttachedToWindow()) getSystemService(WindowManager.class).removeView(bar);
     }
 
     /** Deletes TempShots older than the configured days. Returns how many were deleted. */
