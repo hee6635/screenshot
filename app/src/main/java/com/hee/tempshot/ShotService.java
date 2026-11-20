@@ -303,9 +303,9 @@ public class ShotService extends AccessibilityService {
         preview.setClipToOutline(true);
         preview.setContentDescription("미리보기 열기");
         preview.setOnClickListener(v -> {
-            hideToolbarNow();
             startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(uri, "image/png")
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION));
+            hideToolbarNow();
         });
         row.addView(preview, new LinearLayout.LayoutParams(ui.dp(52), ui.dp(52)));
 
@@ -325,7 +325,6 @@ public class ShotService extends AccessibilityService {
             row.addView(ui.iconButton(R.drawable.ic_scroll, "스크롤 캡처", ui.text, ui.buttonBg(), v -> startScroll()), btn);
         }
         row.addView(ui.iconButton(R.drawable.ic_crop, "자르기", ui.text, ui.buttonBg(), v -> {
-            hideToolbarNow();
             Intent crop = new Intent(this, CropActivity.class).setData(uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             if (canScroll && lastFull != null) { // element bounds only match the single-screen capture
                 crop.putParcelableArrayListExtra(CropActivity.EXTRA_CANDIDATES, lastCandidates);
@@ -335,6 +334,7 @@ public class ShotService extends AccessibilityService {
                 }
             }
             startActivity(crop);
+            hideToolbarNow();
         }), btn);
         row.addView(ui.iconButton(R.drawable.ic_keep_outline, "보관", ui.text, ui.buttonBg(), v -> {
             hideToolbar();
@@ -386,8 +386,9 @@ public class ShotService extends AccessibilityService {
         chip.addView(gear, g);
         chip.setContentDescription(days(this) + "일 후 삭제, 설정 열기");
         chip.setOnClickListener(v -> {
-            hideToolbarNow();
+            // Launch while our toolbar window is still visible; Android trusts launches from visible apps.
             startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            hideToolbarNow();
         });
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
         lp.topMargin = ui.dp(3);
