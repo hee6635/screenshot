@@ -5,20 +5,31 @@ import android.accessibilityservice.AccessibilityService;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
+import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Bitmap;
+import android.graphics.Color;
+import android.graphics.PixelFormat;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.MediaStore;
 import android.view.Display;
+import android.view.Gravity;
+import android.view.View;
+import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.OutputStream;
 
 public class ShotService extends AccessibilityService {
     static final String FOLDER = "Pictures/TempShots/";
+    static final String KEEP_FOLDER = "DCIM/Screenshots/"; // same folder as Galaxy's own screenshots
+    private static final long TOOLBAR_MS = 6000;
     static final String PREFS = "prefs";
     static final String KEY_DAYS = "days";
     static final int DEFAULT_DAYS = 7;
@@ -32,6 +43,8 @@ public class ShotService extends AccessibilityService {
             handler.postDelayed(this, HOUR);
         }
     };
+    private View toolbar;
+    private final Runnable hideToolbarRunnable = this::hideToolbar;
 
     static int days(Context c) {
         return c.getSharedPreferences(PREFS, MODE_PRIVATE).getInt(KEY_DAYS, DEFAULT_DAYS);
@@ -51,16 +64,27 @@ public class ShotService extends AccessibilityService {
     public boolean onUnbind(android.content.Intent intent) {
         instance = null;
         handler.removeCallbacks(cleanupLoop);
+        hideToolbar();
         return super.onUnbind(intent);
     }
 
     /** Closes the notification shade first so the tile path doesn't capture it. */
     void captureAfterClosingShade() {
         performGlobalAction(GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE);
-        handler.postDelayed(this::capture, 600);
+        captureIn(600);
+    }
+
+    void captureIn(long ms) {
+        handler.postDelayed(this::capture, ms);
     }
 
     void capture() {
+        if (toolbar != null) {
+            // Remove the previous toolbar and give the screen a frame to redraw without it.
+            hideToolbar();
+            handler.postDelayed(this::capture, 150);
+            return;
+        }
         takeScreenshot(Display.DEFAULT_DISPLAY, getMainExecutor(), new TakeScreenshotCallback() {
             @Override public void onSuccess(ScreenshotResult r) {
                 Bitmap hw = Bitmap.wrapHardwareBuffer(r.getHardwareBuffer(), r.getColorSpace());
@@ -97,7 +121,81 @@ public class ShotService extends AccessibilityService {
         v.clear();
         v.put(MediaStore.Images.Media.IS_PENDING, 0);
         cr.update(uri, v, null, null);
-        toast("임시 스샷 저장 (" + days(this) + "일 후 삭제)");
+        handler.post(() -> showToolbar(uri));
+    }
+
+    /** Bottom bar shown after a capture: crop / keep / delete / close. Auto-hides. */
+    void showToolbar(Uri uri) {
+        hideToolbar();
+        float dp = getResources().getDisplayMetrics().density;
+        LinearLayout bar = new LinearLayout(this);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        int p = (int) (8 * dp);
+        bar.setPadding(p, p / 2, p, p / 2);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0xEE222222);
+        bg.setCornerRadius(28 * dp);
+        bar.setBackground(bg);
+
+        TextView info = new TextView(this);
+        info.setText(days(this) + "일 후 삭제");
+        info.setTextColor(0xFFAAAAAA);
+        info.setTextSize(12);
+        info.setPadding(p, 0, p, 0);
+        bar.addView(info);
+
+        addButton(bar, "자르기", () -> {
+            hideToolbar();
+            startActivity(new Intent(this, CropActivity.class).setData(uri)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        });
+        addButton(bar, "보관", () -> {
+            hideToolbar();
+            ContentValues v = new ContentValues();
+            v.put(MediaStore.Images.Media.RELATIVE_PATH, KEEP_FOLDER);
+            try {
+                getContentResolver().update(uri, v, null, null);
+                toast("보관함(스크린샷)으로 옮겼어요");
+            } catch (Exception e) {
+                toast("보관 실패");
+            }
+        });
+        addButton(bar, "삭제", () -> {
+            hideToolbar();
+            try { getContentResolver().delete(uri, null, null); toast("삭제했어요"); }
+            catch (Exception e) { toast("삭제 실패"); }
+        });
+        addButton(bar, "✕", this::hideToolbar);
+
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT);
+        lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        lp.y = (int) (96 * dp);
+        getSystemService(WindowManager.class).addView(bar, lp);
+        toolbar = bar;
+        handler.postDelayed(hideToolbarRunnable, TOOLBAR_MS);
+    }
+
+    private void addButton(LinearLayout bar, String label, Runnable action) {
+        int p = (int) (12 * getResources().getDisplayMetrics().density);
+        TextView b = new TextView(this);
+        b.setText(label);
+        b.setTextColor(Color.WHITE);
+        b.setTextSize(15);
+        b.setPadding(p, p, p, p);
+        b.setOnClickListener(v -> action.run());
+        bar.addView(b);
+    }
+
+    void hideToolbar() {
+        handler.removeCallbacks(hideToolbarRunnable);
+        if (toolbar != null) {
+            getSystemService(WindowManager.class).removeView(toolbar);
+            toolbar = null;
+        }
     }
 
     /** Deletes TempShots older than the configured days. Returns how many were deleted. */

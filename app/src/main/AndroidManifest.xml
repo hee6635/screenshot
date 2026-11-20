@@ -12,6 +12,28 @@
             </intent-filter>
         </activity>
 
+        <!-- Second launcher entry so One Hand Operation+ (or any launcher) can trigger a capture. -->
+        <activity
+            android:name=".CaptureActivity"
+            android:exported="true"
+            android:label="스샷 찍기"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".CropActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen" />
+
         <service
             android:name=".ShotService"
             android:exported="true"
