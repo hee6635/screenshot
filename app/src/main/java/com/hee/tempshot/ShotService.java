@@ -81,8 +81,8 @@ public class ShotService extends AccessibilityService {
     public boolean onUnbind(Intent intent) {
         instance = null;
         handler.removeCallbacks(cleanupLoop);
-        hideToolbarNow();
         if (scroll != null) scroll.cancel();
+        removeAllOverlays();
         releaseLast();
         return super.onUnbind(intent);
     }
@@ -99,9 +99,8 @@ public class ShotService extends AccessibilityService {
 
     void capture() {
         if (scroll != null || saving) return; // a scroll capture or save is running
-        if (toolbar != null) {
-            // Remove the previous toolbar and give the screen a frame to redraw without it.
-            hideToolbarNow();
+        if (removeAllOverlays()) {
+            // Clear our bars (and any left behind) and give the screen a frame to redraw without them.
             handler.postDelayed(this::capture, 150);
             return;
         }
@@ -335,7 +334,8 @@ public class ShotService extends AccessibilityService {
 
     /** Floating bar shown after a capture: thumbnail, "복사됨" + delete-period chip, scroll / crop / keep / delete. */
     void showToolbar(Uri uri, Bitmap thumb, boolean canScroll) {
-        hideToolbarNow();
+        if (scroll == null) removeAllOverlays(); // also sweeps up a bar that was left behind
+        else hideToolbarNow();
         Ui ui = new Ui(this);
         LinearLayout card = ui.barCard();
         int padH = ui.barBleedH(), padV = ui.barBleedV(); // glow bleed; a little more vertically for the shadow
@@ -405,7 +405,7 @@ public class ShotService extends AccessibilityService {
         bar.onOutsideTouch = this::hideToolbarNow; // tapping anywhere else dismisses it at once
         WindowManager.LayoutParams lp = ui.barWindow(padV);
         lp.flags |= WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH;
-        getSystemService(WindowManager.class).addView(bar, lp);
+        addOverlay(bar, lp);
         toolbar = bar;
         bar.setAlpha(0f);
         bar.setTranslationY(ui.dp(40));
@@ -518,7 +518,7 @@ public class ShotService extends AccessibilityService {
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
-        getSystemService(WindowManager.class).addView(shade, lp);
+        addOverlay(shade, lp);
         shade.animate().alpha(0.3f).setDuration(90).withEndAction(() ->
                 shade.animate().alpha(0f).setDuration(260).withEndAction(() -> removeView(shade)).start()).start();
     }
@@ -531,6 +531,9 @@ public class ShotService extends AccessibilityService {
         toolbar = null;
         bar.animate().alpha(0f).translationY(bar.getTranslationY() + bar.getHeight() / 2f).setDuration(180)
                 .withEndAction(() -> removeView(bar)).start();
+        // An interrupted animation never runs its end action, which left an orphan bar on screen
+        // that no tap or timeout could close. Remove it regardless.
+        handler.postDelayed(() -> removeView(bar), 300);
     }
 
     /** Removes the toolbar immediately (before a capture or opening another screen). */
@@ -542,8 +545,26 @@ public class ShotService extends AccessibilityService {
         }
     }
 
+    /** Every overlay window we've added and not removed yet (toolbar, scroll bar, guide, dim). */
+    private final java.util.Set<View> overlays = new java.util.HashSet<>();
+
+    void addOverlay(View v, WindowManager.LayoutParams lp) {
+        getSystemService(WindowManager.class).addView(v, lp);
+        overlays.add(v);
+    }
+
     void removeView(View v) {
+        overlays.remove(v);
         if (v.isAttachedToWindow()) getSystemService(WindowManager.class).removeView(v);
+    }
+
+    /** Removes every overlay still up. Returns true if any was. */
+    private boolean removeAllOverlays() {
+        handler.removeCallbacks(hideToolbarRunnable);
+        toolbar = null;
+        boolean any = !overlays.isEmpty();
+        for (View v : new ArrayList<>(overlays)) removeView(v);
+        return any;
     }
 
     /**

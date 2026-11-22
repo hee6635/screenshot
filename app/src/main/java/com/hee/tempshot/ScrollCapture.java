@@ -360,7 +360,7 @@ final class ScrollCapture {
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
-        svc.getSystemService(WindowManager.class).addView(guide, lp);
+        svc.addOverlay(guide, lp);
         reanchor();
         svc.handler.post(poll);
     }
@@ -641,6 +641,6 @@ final class ScrollCapture {
         WindowManager.LayoutParams lp = ui.barWindow(padV);
         int screen = svc.getResources().getDisplayMetrics().widthPixels;
         lp.width = Math.min(screen - 2 * ui.dp(14), ui.dp(380)) + 2 * padH;
-        svc.getSystemService(WindowManager.class).addView(pill, lp);
+        svc.addOverlay(pill, lp);
     }
 }
