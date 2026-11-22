@@ -90,15 +90,36 @@ public class StitcherTest {
         assertEquals(12, Stitcher.findShift(a, b, allInfo(), HEADER, H - FOOTER, 60, 110));
     }
 
+    /** Segment hashes for a synthetic frame: each row's segments derive from its row value. */
+    private static int[] segs(int[] frame) {
+        int[] seg = new int[frame.length * Stitcher.SEGMENTS];
+        for (int y = 0; y < frame.length; y++)
+            for (int k = 0; k < Stitcher.SEGMENTS; k++) seg[y * Stitcher.SEGMENTS + k] = frame[y] * 7 + k;
+        return seg;
+    }
+
     @Test
     public void matchRatioSeparatesRealScrollFromChangedContent() {
         int[] page = new Random(4).ints(1000).toArray();
         int[] a = frame(page, 0), b = frame(page, 40);
-        assertEquals(1f, Stitcher.matchRatio(a, b, allInfo(), HEADER, H - FOOTER, 40), 0.001f);
+        assertEquals(1f, Stitcher.matchRatio(segs(a), segs(b), allInfo(), HEADER, H - FOOTER, 40), 0.001f);
         // Content changed underneath (e.g. new chat text pushed things around): only a few rows still fit.
         int[] changed = b.clone();
         for (int y = HEADER + 20; y < H - FOOTER; y++) changed[y] = 7_000_000 + y;
-        org.junit.Assert.assertTrue(Stitcher.matchRatio(a, changed, allInfo(), HEADER, H - FOOTER, 40) < 0.9f);
+        org.junit.Assert.assertTrue(Stitcher.matchRatio(segs(a), segs(changed), allInfo(), HEADER, H - FOOTER, 40) < 0.9f);
+    }
+
+    @Test
+    public void floatingButtonInOneCornerDoesNotFailTheSeam() {
+        int[] page = new Random(6).ints(1000).toArray();
+        int[] a = frame(page, 0), b = frame(page, 40);
+        int[] sa = segs(a), sb = segs(b);
+        // A fixed home button covers the right segment of 30 rows in both frames (it doesn't scroll).
+        for (int y = HEADER; y < HEADER + 30; y++) {
+            sa[y * Stitcher.SEGMENTS + 3] = -42;
+            sb[y * Stitcher.SEGMENTS + 3] = -42;
+        }
+        org.junit.Assert.assertTrue(Stitcher.matchRatio(sa, sb, allInfo(), HEADER, H - FOOTER, 40) >= 0.9f);
     }
 
     @Test

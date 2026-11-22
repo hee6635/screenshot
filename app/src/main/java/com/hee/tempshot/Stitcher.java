@@ -7,6 +7,7 @@ import java.util.List;
 /** Pure row-matching math for scroll capture (no Android types, so it is unit-tested). */
 final class Stitcher {
     static final int MIN_VOTES = 5;
+    static final int SEGMENTS = 4; // columns per row for matchRatio; one may be covered by a floating button
 
     /**
      * One hash per row (every 2nd pixel); info[y] is false for single-color rows, which match anything.
@@ -25,6 +26,19 @@ final class Stitcher {
             }
             hash[y] = hh;
             info[y] = varied;
+        }
+    }
+
+    /** SEGMENTS hashes per row (seg[y * SEGMENTS + k]) over the same columns rowHashes uses. */
+    static void segmentHashes(int[] px, int w, int h, int[] seg) {
+        int x0 = w * 3 / 100, x1 = w * 94 / 100, span = Math.max(1, (x1 - x0) / SEGMENTS);
+        for (int y = 0; y < h; y++) {
+            int base = y * w;
+            for (int k = 0; k < SEGMENTS; k++) {
+                int hh = 17, from = x0 + k * span, to = k == SEGMENTS - 1 ? x1 : from + span;
+                for (int x = from; x < to; x += 2) hh = hh * 31 + px[base + x];
+                seg[y * SEGMENTS + k] = hh;
+            }
         }
     }
 
@@ -73,15 +87,21 @@ final class Stitcher {
     }
 
     /**
-     * Share of informative rows that line up for shift d (b[y] == a[y + d]). Near 1 for a real scroll;
-     * low when the content changed underneath (a chat still typing, an animation).
+     * Share of informative rows that line up for shift d, comparing segment hashes (see segmentHashes).
+     * A row counts if all but one of its segments match, so a floating button pinned in one corner
+     * (KakaoTalk's home button, a FAB) doesn't fail every row it covers. Near 1 for a real scroll; low
+     * when the content changed underneath (a chat still typing, an animation).
      */
-    static float matchRatio(int[] a, int[] b, boolean[] infoB, int top, int bottom, int d) {
+    static float matchRatio(int[] segA, int[] segB, boolean[] infoB, int top, int bottom, int d) {
         int match = 0, total = 0;
         for (int y = top; y + d < bottom; y++) {
             if (!infoB[y]) continue;
             total++;
-            if (b[y] == a[y + d]) match++;
+            int same = 0;
+            for (int k = 0; k < SEGMENTS; k++) {
+                if (segB[y * SEGMENTS + k] == segA[(y + d) * SEGMENTS + k]) same++;
+            }
+            if (same >= SEGMENTS - 1) match++;
         }
         return total == 0 ? 0f : (float) match / total;
     }

@@ -42,6 +42,7 @@ final class ScrollCapture {
     private final ArrayList<Bitmap> pieces = new ArrayList<>();
     private Bitmap prev;               // last full frame
     private int[] prevHash;
+    private int[] prevSeg;             // per-row segment hashes of prev, for matchRatio
     private int regionTop, regionBottom = -1; // rows of the scrolling list; -1 = infer from the first step
     private int cut, offset, taken;           // see Stitcher.strip
     private int pages = 1, height;
@@ -58,7 +59,8 @@ final class ScrollCapture {
         this.prev = first;
         w = first.getWidth();
         h = first.getHeight();
-        prevHash = hashes(first, null);
+        prevSeg = new int[h * Stitcher.SEGMENTS];
+        prevHash = hashes(first, null, prevSeg);
         if (list != null) {
             regionTop = Math.max(0, list.top);
             regionBottom = Math.min(h, list.bottom);
@@ -165,7 +167,8 @@ final class ScrollCapture {
     private synchronized String add(Bitmap b) {
         if (finished) { b.recycle(); return null; }
         boolean[] info = new boolean[h];
-        int[] hash = hashes(b, info);
+        int[] seg = new int[h * Stitcher.SEGMENTS];
+        int[] hash = hashes(b, info, seg);
         if (regionBottom < 0) { // no scrolling list found: rows that stayed put are header / footer
             int top = Stitcher.sameTop(prevHash, hash);
             if (top >= h) { b.recycle(); return "끝까지 캡처했어요"; }
@@ -187,7 +190,7 @@ final class ScrollCapture {
         int d = Stitcher.findShift(prevHash, hash, info, regionTop, band, expected / 2, expected * 8 / 5);
         if (d <= 0) { b.recycle(); return "더 이어 붙일 수 없는 화면이에요"; }
         // Safety: never glue a doubtful seam. Stop and keep what's already stitched instead.
-        if (Stitcher.matchRatio(prevHash, hash, info, regionTop, band, d) < MIN_MATCH
+        if (Stitcher.matchRatio(prevSeg, seg, info, regionTop, band, d) < MIN_MATCH
                 || taken - (offset + d) < regionTop) { // moved past the trusted band: rows would be missing
             b.recycle();
             return "화면이 바뀌어서 여기까지만 이어 붙였어요. '완료'를 눌러 저장하세요";
@@ -203,6 +206,7 @@ final class ScrollCapture {
         prev.recycle();
         prev = b;
         prevHash = hash;
+        prevSeg = seg;
         Bitmap t = ShotService.thumbnail(svc, b);
         svc.handler.post(() -> thumb.setImageBitmap(t));
         if (pages >= MAX_PAGES || height >= MAX_HEIGHT) return "최대 길이까지 캡처했어요";
@@ -215,11 +219,12 @@ final class ScrollCapture {
         return r == src ? src.copy(Bitmap.Config.ARGB_8888, false) : r;
     }
 
-    private int[] hashes(Bitmap b, boolean[] info) {
+    private int[] hashes(Bitmap b, boolean[] info, int[] seg) {
         int[] px = new int[w * h];
         b.getPixels(px, 0, w, 0, 0, w, h);
         int[] hash = new int[h];
         Stitcher.rowHashes(px, w, h, hash, info != null ? info : new boolean[h]);
+        Stitcher.segmentHashes(px, w, h, seg);
         return hash;
     }
 
