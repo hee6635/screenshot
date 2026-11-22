@@ -89,4 +89,15 @@ public class StitcherTest {
         int[] a = frame(page, 0), b = frame(page, 12);
         assertEquals(12, Stitcher.findShift(a, b, allInfo(), HEADER, H - FOOTER, 60, 110));
     }
+
+    @Test
+    public void matchRatioSeparatesRealScrollFromChangedContent() {
+        int[] page = new Random(4).ints(1000).toArray();
+        int[] a = frame(page, 0), b = frame(page, 40);
+        assertEquals(1f, Stitcher.matchRatio(a, b, allInfo(), HEADER, H - FOOTER, 40), 0.001f);
+        // Content changed underneath (e.g. new chat text pushed things around): only a few rows still fit.
+        int[] changed = b.clone();
+        for (int y = HEADER + 20; y < H - FOOTER; y++) changed[y] = 7_000_000 + y;
+        org.junit.Assert.assertTrue(Stitcher.matchRatio(a, changed, allInfo(), HEADER, H - FOOTER, 40) < 0.9f);
+    }
 }

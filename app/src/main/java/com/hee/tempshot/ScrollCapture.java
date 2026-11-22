@@ -26,7 +26,8 @@ import java.util.ArrayList;
  * bars, floating buttons and toasts that sit low on screen are not repeated in every strip.
  */
 final class ScrollCapture {
-    private static final float SWIPE = 0.45f;     // share of the list height per step
+    private static final float SWIPE = 0.35f;     // share of the list height per step; leaves room before CUT
+    private static final float MIN_MATCH = 0.9f;  // below this the screen changed while capturing
     private static final float CUT = 0.6f;        // strips come from above this share of the list
     private static final int MAX_PAGES = 25;
     private static final int MAX_HEIGHT = 30000;  // px, keeps the final bitmap within memory
@@ -181,6 +182,12 @@ final class ScrollCapture {
         int expected = Math.round(listH * SWIPE);
         int d = Stitcher.findShift(prevHash, hash, info, regionTop, regionBottom, expected / 2, expected * 8 / 5);
         if (d <= 0) { b.recycle(); return "더 이어 붙일 수 없는 화면이에요"; }
+        // Safety: never glue a doubtful seam. Stop and keep what's already stitched instead.
+        if (Stitcher.matchRatio(prevHash, hash, info, regionTop, regionBottom, d) < MIN_MATCH
+                || taken - (offset + d) < regionTop) { // moved past the trusted band: rows would be missing
+            b.recycle();
+            return "화면이 바뀌어서 여기까지만 이어 붙였어요. '완료'를 눌러 저장하세요";
+        }
         offset += d;
         int[] strip = Stitcher.strip(taken, offset, cut, regionTop);
         if (strip[1] > strip[0]) {

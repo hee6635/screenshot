@@ -68,6 +68,20 @@ final class Stitcher {
     }
 
     /**
+     * Share of informative rows that line up for shift d (b[y] == a[y + d]). Near 1 for a real scroll;
+     * low when the content changed underneath (a chat still typing, an animation).
+     */
+    static float matchRatio(int[] a, int[] b, boolean[] infoB, int top, int bottom, int d) {
+        int match = 0, total = 0;
+        for (int y = top; y + d < bottom; y++) {
+            if (!infoB[y]) continue;
+            total++;
+            if (b[y] == a[y + d]) match++;
+        }
+        return total == 0 ? 0f : (float) match / total;
+    }
+
+    /**
      * Rows [y0, y1) of the newest frame to append. taken = page rows already in the result,
      * offset = page row at this frame's y=0, cut = lowest frame row used (kept above floating
      * buttons, toasts and input bars), regionTop = first row that scrolls.
