@@ -45,7 +45,7 @@ final class ScrollCapture {
     private static final float MATCH_BAND = 0.8f;
     private static final int MAX_PAGES = 25;
     private static final int MAX_HEIGHT = 30000;  // px, keeps the final bitmap within memory
-    private static final float BAND_TOP = 0.05f, BAND_BOTTOM = 0.30f; // manual drop zone, share of the list
+    private static final float BAND_TOP = 0.10f, BAND_BOTTOM = 0.32f; // manual drop zone, share of the list
     private static final long POLL_MS = 80, SETTLE_MS = 300;
 
     private final ShotService svc;
@@ -217,31 +217,40 @@ final class ScrollCapture {
         boolean[] info = new boolean[h];
         int[] seg = new int[h * Stitcher.SEGMENTS];
         int[] hash = hashes(b, info, seg);
-        if (regionBottom < 0) { // no scrolling list found: rows that stayed put are header / footer
+        // Region of the scrolling list. When accessibility doesn't tell us, infer it from this pair, but
+        // only keep it if the step succeeds: a step where only a popup changed (KakaoTalk's date chip)
+        // would otherwise lock a tiny bogus region and every later step fails.
+        int rTop = regionTop, rBottom = regionBottom;
+        if (rBottom < 0) { // rows that stayed put are header / footer
             int top = Stitcher.sameTop(prevHash, hash);
             if (top >= h) { b.recycle(); return STOP_END; }
-            regionTop = top;
-            regionBottom = h - Stitcher.sameBottom(prevHash, hash, h - top);
+            rTop = top;
+            rBottom = h - Stitcher.sameBottom(prevHash, hash, h - top);
         }
-        int listH = regionBottom - regionTop;
-        int band = regionTop + Math.round(listH * MATCH_BAND); // rows [regionTop, band) are compared
+        int listH = rBottom - rTop;
+        int band = rTop + Math.round(listH * MATCH_BAND); // rows [rTop, band) are compared
         boolean moved = false;
-        for (int y = regionTop; y < band && !moved; y++) moved = prevHash[y] != hash[y];
+        for (int y = rTop; y < band && !moved; y++) moved = prevHash[y] != hash[y];
         if (!moved) { b.recycle(); return STOP_END; }
+        int cutHere = pieces.isEmpty() ? rTop + Math.round(listH * CUT) : cut;
+        int takenHere = pieces.isEmpty() ? cutHere : taken;
+        int expected = expectedShift > 0 ? expectedShift : Math.round(listH * SWIPE);
+        int d = Stitcher.findShift(prevHash, hash, info, rTop, band, expected / 2, expected * 8 / 5);
+        if (d <= 0) { b.recycle(); return "더 이어 붙일 수 없는 화면이에요"; }
+        // Safety: never glue a doubtful seam. Stop and keep what's already stitched instead.
+        if (Stitcher.matchRatio(prevSeg, seg, info, rTop, band, d) < MIN_MATCH
+                || takenHere - (offset + d) < rTop) { // moved past the trusted band: rows would be missing
+            b.recycle();
+            return "화면이 바뀌어 멈췄어요 · '완료'로 저장";
+        }
+        // Success: commit the region and start the result on the first page.
+        regionTop = rTop;
+        regionBottom = rBottom;
         if (pieces.isEmpty()) {
-            cut = regionTop + Math.round(listH * CUT);
+            cut = cutHere;
             pieces.add(rows(prev, 0, cut)); // header + first part of the list
             taken = cut;
             height = cut;
-        }
-        int expected = expectedShift > 0 ? expectedShift : Math.round(listH * SWIPE);
-        int d = Stitcher.findShift(prevHash, hash, info, regionTop, band, expected / 2, expected * 8 / 5);
-        if (d <= 0) { b.recycle(); return "더 이어 붙일 수 없는 화면이에요"; }
-        // Safety: never glue a doubtful seam. Stop and keep what's already stitched instead.
-        if (Stitcher.matchRatio(prevSeg, seg, info, regionTop, band, d) < MIN_MATCH
-                || taken - (offset + d) < regionTop) { // moved past the trusted band: rows would be missing
-            b.recycle();
-            return "화면이 바뀌어 멈췄어요 · '완료'로 저장";
         }
         offset += d;
         int[] strip = Stitcher.strip(taken, offset, cut, regionTop);
