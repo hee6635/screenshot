@@ -36,6 +36,16 @@ final class GlowFrame extends FrameLayout {
     private float angle, glowAlpha = 1f, downY;
     private ValueAnimator anim;
     Runnable onSwipeDown;
+    Runnable onOutsideTouch; // needs FLAG_WATCH_OUTSIDE_TOUCH on the window
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent e) {
+        if (e.getActionMasked() == MotionEvent.ACTION_OUTSIDE) {
+            if (onOutsideTouch != null) onOutsideTouch.run();
+            return true; // the touch itself still reaches the app underneath
+        }
+        return super.dispatchTouchEvent(e);
+    }
 
     GlowFrame(Context c, View card, int hairlineColor, float radiusDp, int padH, int padV, boolean spinForever) {
         super(c);

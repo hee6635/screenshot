@@ -402,7 +402,10 @@ public class ShotService extends AccessibilityService {
             }
         }));
 
-        getSystemService(WindowManager.class).addView(bar, ui.barWindow(padV));
+        bar.onOutsideTouch = this::hideToolbarNow; // tapping anywhere else dismisses it at once
+        WindowManager.LayoutParams lp = ui.barWindow(padV);
+        lp.flags |= WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH;
+        getSystemService(WindowManager.class).addView(bar, lp);
         toolbar = bar;
         bar.setAlpha(0f);
         bar.setTranslationY(ui.dp(40));
