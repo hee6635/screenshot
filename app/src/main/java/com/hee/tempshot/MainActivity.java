@@ -83,7 +83,7 @@ public class MainActivity extends Activity {
         col.addView(sectionTitle("자동 삭제"));
         LinearLayout period = card();
         period.setPadding(ui.dp(20), ui.dp(16), ui.dp(20), ui.dp(16));
-        period.addView(ui.text("찍은 뒤 이 기간이 지나면 지워져요", 14, ui.subText));
+        period.addView(ui.text("찍은 뒤 이 기간이 지나면 휴지통으로 가요 (30일 안에 복구 가능)", 14, ui.subText));
         chips = new LinearLayout(this);
         chips.setPadding(0, ui.dp(12), 0, 0);
         period.addView(chips);
@@ -215,7 +215,7 @@ public class MainActivity extends Activity {
     private void setDays(int d) {
         getSharedPreferences(ShotService.PREFS, MODE_PRIVATE).edit().putInt(ShotService.KEY_DAYS, d).apply();
         int n = ShotService.cleanup(this);
-        if (n > 0) Toast.makeText(this, "지난 스샷 " + n + "개를 지웠어요", Toast.LENGTH_SHORT).show();
+        if (n > 0) Toast.makeText(this, "지난 스샷 " + n + "개를 휴지통으로 옮겼어요", Toast.LENGTH_SHORT).show();
         renderChips();
         refreshStatus();
     }

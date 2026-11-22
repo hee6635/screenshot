@@ -394,9 +394,9 @@ public class ShotService extends AccessibilityService {
         card.addView(ui.iconButton(R.drawable.ic_bar_delete, "삭제", ui.barDanger(), v -> {
             hideToolbar();
             try {
-                getContentResolver().delete(uri, null, null);
+                trash(this, uri);
                 getSystemService(ClipboardManager.class).clearPrimaryClip();
-                toast("삭제했어요");
+                toast("휴지통으로 옮겼어요");
             } catch (Exception e) {
                 toast("삭제 실패");
             }
@@ -545,7 +545,17 @@ public class ShotService extends AccessibilityService {
         if (v.isAttachedToWindow()) getSystemService(WindowManager.class).removeView(v);
     }
 
-    /** Deletes TempShots older than the configured days. Returns how many were deleted. */
+    /**
+     * Moves an image to the gallery's trash (restorable for 30 days) instead of deleting it.
+     * Apps may trash their own media without asking. Returns 1 if moved.
+     */
+    static int trash(Context c, Uri uri) {
+        ContentValues v = new ContentValues();
+        v.put(MediaStore.MediaColumns.IS_TRASHED, 1);
+        return c.getContentResolver().update(uri, v, null, null);
+    }
+
+    /** Moves TempShots older than the configured days to the trash. Already-trashed ones aren't listed. */
     static int cleanup(Context c) {
         long cutoffSec = System.currentTimeMillis() / 1000 - days(c) * 86400L;
         ContentResolver cr = c.getContentResolver();
@@ -558,7 +568,7 @@ public class ShotService extends AccessibilityService {
             while (cur.moveToNext()) {
                 Uri u = Uri.withAppendedPath(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cur.getString(0));
                 try {
-                    deleted += cr.delete(u, null, null);
+                    deleted += trash(c, u);
                 } catch (SecurityException e) {
                     // shortcut: files from before an app reinstall aren't ours anymore and are skipped; delete them by hand in Gallery.
                 }
