@@ -506,20 +506,21 @@ public class ShotService extends AccessibilityService {
         return lp;
     }
 
-    /** Brief white flash like a camera shutter. Skipped when the user turned animations off. */
+    /** Brief dim-and-back like a camera shutter (a white flash was too harsh). Skipped when animations are off. */
     private void flash() {
         if (!ValueAnimator.areAnimatorsEnabled()) return;
-        View white = new View(this);
-        white.setBackgroundColor(0xFFFFFFFF);
-        white.setAlpha(0.7f);
+        View shade = new View(this);
+        shade.setBackgroundColor(0xFF000000);
+        shade.setAlpha(0f);
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
-        getSystemService(WindowManager.class).addView(white, lp);
-        white.animate().alpha(0f).setDuration(250).withEndAction(() -> removeView(white)).start();
+        getSystemService(WindowManager.class).addView(shade, lp);
+        shade.animate().alpha(0.3f).setDuration(90).withEndAction(() ->
+                shade.animate().alpha(0f).setDuration(260).withEndAction(() -> removeView(shade)).start()).start();
     }
 
     /** Slides the toolbar out. */
