@@ -8,12 +8,17 @@ import java.util.List;
 final class Stitcher {
     static final int MIN_VOTES = 5;
 
-    /** One hash per row (every 2nd pixel); info[y] is false for single-color rows, which match anything. */
+    /**
+     * One hash per row (every 2nd pixel); info[y] is false for single-color rows, which match anything.
+     * Skips the outer edges: scroll bars fade in at the right while scrolling and would make every row
+     * they touch look different.
+     */
     static void rowHashes(int[] px, int w, int h, int[] hash, boolean[] info) {
+        int x0 = w * 3 / 100, x1 = w * 94 / 100;
         for (int y = 0; y < h; y++) {
-            int base = y * w, first = px[base], hh = 17;
+            int base = y * w, first = px[base + x0], hh = 17;
             boolean varied = false;
-            for (int x = 0; x < w; x += 2) {
+            for (int x = x0; x < x1; x += 2) {
                 int p = px[base + x];
                 hh = hh * 31 + p;
                 if (p != first) varied = true;

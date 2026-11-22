@@ -100,4 +100,16 @@ public class StitcherTest {
         for (int y = HEADER + 20; y < H - FOOTER; y++) changed[y] = 7_000_000 + y;
         org.junit.Assert.assertTrue(Stitcher.matchRatio(a, changed, allInfo(), HEADER, H - FOOTER, 40) < 0.9f);
     }
+
+    @Test
+    public void rowHashesIgnoreScrollBarAtTheRightEdge() {
+        int w = 100;
+        int[] row = new java.util.Random(5).ints(w).toArray();
+        int[] withBar = row.clone();
+        for (int x = 96; x < 100; x++) withBar[x] = 0xFF888888; // scroll bar thumb
+        int[] h1 = new int[1], h2 = new int[1];
+        Stitcher.rowHashes(row, w, 1, h1, new boolean[1]);
+        Stitcher.rowHashes(withBar, w, 1, h2, new boolean[1]);
+        assertEquals(h1[0], h2[0]);
+    }
 }

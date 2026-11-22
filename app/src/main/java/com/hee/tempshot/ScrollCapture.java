@@ -29,6 +29,9 @@ final class ScrollCapture {
     private static final float SWIPE = 0.35f;     // share of the list height per step; leaves room before CUT
     private static final float MIN_MATCH = 0.9f;  // below this the screen changed while capturing
     private static final float CUT = 0.6f;        // strips come from above this share of the list
+    // Rows below this share of the list are ignored when matching: floating input panels, "scroll to
+    // bottom" buttons and toasts sit there and never move with the content (Claude app composer).
+    private static final float MATCH_BAND = 0.8f;
     private static final int MAX_PAGES = 25;
     private static final int MAX_HEIGHT = 30000;  // px, keeps the final bitmap within memory
 
@@ -169,10 +172,11 @@ final class ScrollCapture {
             regionTop = top;
             regionBottom = h - Stitcher.sameBottom(prevHash, hash, h - top);
         }
-        boolean moved = false;
-        for (int y = regionTop; y < regionBottom && !moved; y++) moved = prevHash[y] != hash[y];
-        if (!moved) { b.recycle(); return "끝까지 캡처했어요"; }
         int listH = regionBottom - regionTop;
+        int band = regionTop + Math.round(listH * MATCH_BAND); // rows [regionTop, band) are compared
+        boolean moved = false;
+        for (int y = regionTop; y < band && !moved; y++) moved = prevHash[y] != hash[y];
+        if (!moved) { b.recycle(); return "끝까지 캡처했어요"; }
         if (pieces.isEmpty()) {
             cut = regionTop + Math.round(listH * CUT);
             pieces.add(rows(prev, 0, cut)); // header + first part of the list
@@ -180,10 +184,10 @@ final class ScrollCapture {
             height = cut;
         }
         int expected = Math.round(listH * SWIPE);
-        int d = Stitcher.findShift(prevHash, hash, info, regionTop, regionBottom, expected / 2, expected * 8 / 5);
+        int d = Stitcher.findShift(prevHash, hash, info, regionTop, band, expected / 2, expected * 8 / 5);
         if (d <= 0) { b.recycle(); return "더 이어 붙일 수 없는 화면이에요"; }
         // Safety: never glue a doubtful seam. Stop and keep what's already stitched instead.
-        if (Stitcher.matchRatio(prevHash, hash, info, regionTop, regionBottom, d) < MIN_MATCH
+        if (Stitcher.matchRatio(prevHash, hash, info, regionTop, band, d) < MIN_MATCH
                 || taken - (offset + d) < regionTop) { // moved past the trusted band: rows would be missing
             b.recycle();
             return "화면이 바뀌어서 여기까지만 이어 붙였어요. '완료'를 눌러 저장하세요";
