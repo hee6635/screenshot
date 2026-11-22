@@ -31,7 +31,7 @@ import java.util.ArrayList;
  * New rows are taken from the middle of the list (above "cut"), never its bottom edge, so input
  * bars, floating buttons and toasts that sit low on screen are not repeated in every strip.
  *
- * Manual mode ("직접 내리기") is for apps that ignore injected swipes: the user scrolls by hand. A line
+ * Manual mode ("수동") is for apps that ignore injected swipes: the user scrolls by hand. A line
  * is stuck to an on-screen element at the cut line (its position is polled through accessibility);
  * when the user lets it rest anywhere inside a green band near the top of the list, the next page is
  * captured. Stitching itself is the same image matching as in auto mode; the line only guides.
@@ -74,7 +74,6 @@ final class ScrollCapture {
     private long lastMoveAt;
     private int lineState;
     private boolean eventMode;  // no element to follow, but the app reports scroll amounts: move the line by those
-    private int scrollEvents;   // diagnostic count
     private final Runnable poll = this::pollAnchor;
 
     ScrollCapture(ShotService svc, Bitmap first, int[] bars, Uri original, Rect list) {
@@ -175,7 +174,7 @@ final class ScrollCapture {
                         ended = true;
                         full = stop.equals(STOP_FULL);
                         // Nothing moved on the very first step: the app likely ignores injected swipes.
-                        say(stop.equals(STOP_END) && pages == 1 ? "자동으로 안 내려가요 · [직접 내리기]" : stop);
+                        say(stop.equals(STOP_END) && pages == 1 ? "자동으로 안 내려가요 · [수동]" : stop);
                     } else if (pressed) {
                         step();
                     }
@@ -205,7 +204,7 @@ final class ScrollCapture {
     }
 
     private final Runnable restoreLabel = () -> {
-        if (label != null) label.setText(manual ? "직접 · " + pages + "페이지" : pages + "페이지");
+        if (label != null) label.setText(manual ? "수동 · " + pages + "페이지" : pages + "페이지");
     };
 
     private static final String STOP_END = "끝까지 캡처했어요";
@@ -353,7 +352,7 @@ final class ScrollCapture {
         ended = false; // auto mode may have stopped because nothing moved; manual takes over from here
         pressed = false;
         directBtn.setVisibility(View.GONE);
-        label.setText("직접 · " + pages + "페이지");
+        label.setText("수동 · " + pages + "페이지");
         guide = new GuideView(svc);
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
@@ -390,7 +389,6 @@ final class ScrollCapture {
             anchor = elementAt(lineY);
         } catch (RuntimeException e) {
             // Best effort: windows can change mid-walk; fall back to the fixed line.
-            lastScan = "검색 오류: " + e.getClass().getSimpleName();
         }
         if (anchor != null) {
             Rect r = new Rect();
@@ -401,7 +399,6 @@ final class ScrollCapture {
         drawGuide();
     }
 
-    private String lastScan = "";
 
     /**
      * Smallest visible on-screen element crossing row y (a message bubble, a card, a text line). If row y
@@ -415,8 +412,6 @@ final class ScrollCapture {
             AccessibilityNodeInfo root = win.getRoot();
             if (root != null) q.add(root);
         }
-        int windows = 0, apps = q.size(), visited0 = 0, visible = 0;
-        for (AccessibilityWindowInfo win : svc.getWindows()) windows++;
         AccessibilityNodeInfo best = null, nearest = null;
         long bestArea = Long.MAX_VALUE;
         float nearestDist = h * 0.2f;
@@ -424,9 +419,7 @@ final class ScrollCapture {
         int visited = 0;
         while (!q.isEmpty() && visited++ < 1500) { // shortcut: very large trees are cut off; the fixed line covers that
             AccessibilityNodeInfo n = q.poll();
-            visited0++;
             if (!n.isVisibleToUser()) continue;
-            visible++;
             n.getBoundsInScreen(r);
             boolean sized = r.height() > 0 && r.height() < h * 0.45f && r.width() > w * 0.15f;
             if (sized && r.top <= y && r.bottom > y) {
@@ -444,7 +437,6 @@ final class ScrollCapture {
                 if (child != null) q.add(child);
             }
         }
-        lastScan = "창 " + windows + " · 앱 " + apps + " · 요소 " + visited0 + " · 보이는 요소 " + visible;
         return best != null ? best : nearest;
     }
 
@@ -481,7 +473,6 @@ final class ScrollCapture {
     void onScrolled(int dy) {
         if (!manual || finished || busy || anchor != null || dy == 0) return;
         guard(() -> {
-            scrollEvents++;
             if (!eventMode) {
                 eventMode = true;
                 shootBtn.setVisibility(View.GONE); // the line follows now; no need to tap
@@ -513,10 +504,8 @@ final class ScrollCapture {
     }
 
     private void drawGuide() {
-        // shortcut: lastScan is a diagnostic shown next to the fixed line (KakaoTalk test); drop once understood
         boolean fixed = anchor == null && !eventMode;
-        if (guide != null) guide.set(bandTop(), bandBottom(), lineY, lineState, fixed,
-                anchor == null ? lastScan + " · 이벤트 " + scrollEvents : "");
+        if (guide != null) guide.set(bandTop(), bandBottom(), lineY, lineState, fixed);
     }
 
     /** Captures the hand-scrolled screen and stitches it. expectedShift: how far the line moved (0 = unknown). */
@@ -532,7 +521,7 @@ final class ScrollCapture {
                 svc.handler.post(() -> guard(() -> {
                     busy = false;
                     if (finished || !manual) return;
-                    label.setText("직접 · " + pages + "페이지");
+                    label.setText("수동 · " + pages + "페이지");
                     if (stop == null) {
                         pill.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
                         reanchor();
@@ -607,8 +596,8 @@ final class ScrollCapture {
         more.setOnClickListener(v -> { if (manual) stopManual(); else step(); });
         card.addView(Ui.afterText(more, ui.dp(16)));
 
-        // Shown from the start for now (testing); otherwise it matters once auto scrolling doesn't move.
-        TextView direct = ui.text("직접 내리기", 12, Ui.KEEP_BLUE);
+        // Always shown: some apps (KakaoTalk) take injected swipes one time and ignore them the next.
+        TextView direct = ui.text("수동", 12, Ui.KEEP_BLUE);
         direct.setTypeface(Typeface.DEFAULT_BOLD);
         direct.setSingleLine(true);
         direct.setGravity(Gravity.CENTER);
