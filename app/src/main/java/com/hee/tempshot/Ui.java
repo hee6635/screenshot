@@ -85,7 +85,7 @@ final class Ui {
     static final float BAR_RADIUS = 20;
 
     int barBg() { return dark ? 0xF2181A1F : 0xFAFFFFFF; } // near-opaque: system "복사했어요." toast barely shows through
-    int barHairline() { return dark ? 0x24FFFFFF : 0x18000000; }
+    int barHairline() { return dark ? 0x24FFFFFF : 0x24000000; } // light: a bit darker so it holds on white apps
     int barText() { return dark ? 0xFFF2F4F8 : 0xFF191F28; }
     int barSubText() { return dark ? 0xFFA3A8B3 : 0xFF6B7280; }
     int barIcon() { return dark ? 0xFFECEFF4 : 0xFF222730; }
@@ -93,13 +93,17 @@ final class Ui {
     int barChip() { return dark ? 0x18FFFFFF : 0x0E000000; }
     int barRipple() { return dark ? 0x26FFFFFF : 0x1A000000; }
 
-    /** The bar's card: compact wrap-content row, rounded 20dp, soft 10dp shadow, padding L10 R10 T6 B6. */
+    /**
+     * The bar's card: compact wrap-content row, rounded 20dp, soft 13dp shadow. Right padding is only 4dp
+     * because the last icon's 38dp touch target already carries ~9dp of space around its 20dp glyph;
+     * that keeps the right edge visually even with the thumbnail's 10dp on the left.
+     */
     LinearLayout barCard() {
         LinearLayout card = new LinearLayout(c);
         card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(dp(10), dp(6), dp(10), dp(6));
+        card.setPadding(dp(10), dp(6), dp(4), dp(6));
         card.setBackground(round(barBg(), BAR_RADIUS));
-        card.setElevation(dp(10));
+        card.setElevation(dp(13));
         return card;
     }
 
@@ -140,6 +144,10 @@ final class Ui {
         i.setLayoutParams(lp);
         return i;
     }
+
+    /** Room around the card for the glow and the 13dp shadow, so neither is cut at the window edge. */
+    int barBleedH() { return dp(12); }
+    int barBleedV() { return dp(18); }
 
     /** Window params for a bar: wrap-content, bottom center, clear of the home-screen dock. */
     android.view.WindowManager.LayoutParams barWindow(int padV) {

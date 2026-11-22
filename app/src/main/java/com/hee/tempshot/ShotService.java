@@ -338,7 +338,7 @@ public class ShotService extends AccessibilityService {
         hideToolbarNow();
         Ui ui = new Ui(this);
         LinearLayout card = ui.barCard();
-        int padH = ui.dp(6), padV = ui.dp(12); // glow bleed; a little more vertically for the shadow
+        int padH = ui.barBleedH(), padV = ui.barBleedV(); // glow bleed; a little more vertically for the shadow
         GlowFrame bar = new GlowFrame(this, card, ui.barHairline(), Ui.BAR_RADIUS, padH, padV, false);
         bar.onSwipeDown = this::hideToolbar;
 

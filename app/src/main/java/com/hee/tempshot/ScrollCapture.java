@@ -275,7 +275,7 @@ final class ScrollCapture {
     private void showPill() {
         Ui ui = new Ui(svc);
         LinearLayout card = ui.barCard();
-        int padH = ui.dp(6), padV = ui.dp(12);
+        int padH = ui.barBleedH(), padV = ui.barBleedV();
         pill = new GlowFrame(svc, card, ui.barHairline(), Ui.BAR_RADIUS, padH, padV, true);
 
         thumb = ui.barThumb(ShotService.thumbnail(svc, prev));
