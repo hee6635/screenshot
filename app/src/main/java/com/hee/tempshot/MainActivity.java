@@ -80,7 +80,7 @@ public class MainActivity extends Activity {
         col.addView(service, cardLp());
 
         // Delete period card
-        col.addView(sectionTitle("자동 삭제"));
+        col.addView(sectionTitle("자동 정리"));
         LinearLayout period = card();
         period.setPadding(ui.dp(20), ui.dp(16), ui.dp(20), ui.dp(16));
         period.addView(ui.text("찍은 뒤 이 기간이 지나면 휴지통으로 가요 (30일 안에 복구 가능)", 14, ui.subText));
@@ -138,10 +138,10 @@ public class MainActivity extends Activity {
         String[][] steps = {
                 {"제스처로 찍기", "원핸드 오퍼레이션+ → 제스처 동작 → 앱 실행 → '스샷 찍기'"},
                 {"타일로 찍기", "빠른 설정 편집에서 '임시 스샷' 타일 추가"},
-                {"찍은 뒤", "자동으로 복사돼요. 아래 툴바에서 스크롤 캡처 · 자르기 · 보관 · 삭제. 툴바는 아래로 쓸어서 닫아요"},
+                {"찍은 뒤", "자동으로 복사돼요. 썸네일을 누르면 공유, 길게 누르면 열기. 아래 툴바에서 스크롤 캡처 · 자르기 · 보관 · 휴지통. 툴바는 바깥을 누르거나 아래로 쓸어서 닫아요"},
                 {"스크롤 캡처", "⌄⌄를 누를 때마다 한 번 내려서 이어 붙여요. 누르고 있으면 계속 내려가요. 다 되면 '완료'"},
                 {"자르기", "사진이나 카드 같은 영역을 탭하면 범위가 자동으로 맞춰져요"},
-                {"앨범", "갤러리의 'TempShots' 앨범에 모여요. 보관하면 스크린샷 앨범으로 옮겨져 지워지지 않아요"},
+                {"앨범", "갤러리의 'TempShots' 앨범에 모여요. 기간이 지나면 휴지통으로 가고, 30일 안에는 휴지통에서 복구할 수 있어요. 보관하면 스크린샷 앨범으로 옮겨져 정리되지 않아요"},
                 {"남길 스샷", "갤럭시 기본 캡처로 찍은 건 이 앱이 건드리지 않아요"},
         };
         for (int i = 0; i < steps.length; i++) {
@@ -177,7 +177,7 @@ public class MainActivity extends Activity {
         boolean on = ShotService.instance != null;
         serviceState.setText(on ? "켜짐" : "꺼짐");
         serviceState.setTextColor(on ? Ui.ACCENT : Ui.DANGER);
-        headerStatus.setText(on ? ShotService.days(this) + "일 뒤 자동 삭제 중" : "접근성 서비스를 켜 주세요");
+        headerStatus.setText(on ? ShotService.days(this) + "일 뒤 휴지통으로 정리 중" : "접근성 서비스를 켜 주세요");
     }
 
     private void renderChips() {
