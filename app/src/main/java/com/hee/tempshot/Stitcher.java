@@ -49,6 +49,27 @@ final class Stitcher {
         return i;
     }
 
+    /** Row y of two frames counts as the same if all but one of its segments match (see segmentHashes). */
+    static boolean sameRow(int[] segA, int[] segB, int y) {
+        int same = 0;
+        for (int k = 0; k < SEGMENTS; k++) if (segA[y * SEGMENTS + k] == segB[y * SEGMENTS + k]) same++;
+        return same >= SEGMENTS - 1;
+    }
+
+    /** Like sameTop, but a corner overlay (screen-recorder timer, floating button) doesn't end the header. */
+    static int sameTopRows(int[] segA, int[] segB, int h) {
+        int i = 0;
+        while (i < h && sameRow(segA, segB, i)) i++;
+        return i;
+    }
+
+    /** Like sameBottom, tolerant of a corner overlay (date chip, floating button). */
+    static int sameBottomRows(int[] segA, int[] segB, int h, int limit) {
+        int i = 0;
+        while (i < limit && sameRow(segA, segB, h - 1 - i)) i++;
+        return i;
+    }
+
     /** Rows identical at the bottom of both frames (navigation bar, sticky footer). */
     static int sameBottom(int[] a, int[] b, int limit) {
         int i = 0, n = a.length;

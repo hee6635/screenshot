@@ -222,10 +222,10 @@ final class ScrollCapture {
         // would otherwise lock a tiny bogus region and every later step fails.
         int rTop = regionTop, rBottom = regionBottom;
         if (rBottom < 0) { // rows that stayed put are header / footer
-            int top = Stitcher.sameTop(prevHash, hash);
+            int top = Stitcher.sameTopRows(prevSeg, seg, h);
             if (top >= h) { b.recycle(); return STOP_END; }
             rTop = top;
-            rBottom = h - Stitcher.sameBottom(prevHash, hash, h - top);
+            rBottom = h - Stitcher.sameBottomRows(prevSeg, seg, h, h - top);
         }
         int listH = rBottom - rTop;
         int band = rTop + Math.round(listH * MATCH_BAND); // rows [rTop, band) are compared
@@ -237,9 +237,11 @@ final class ScrollCapture {
         int expected = expectedShift > 0 ? expectedShift : Math.round(listH * SWIPE);
         int d = Stitcher.findShift(prevHash, hash, info, rTop, band, expected / 2, expected * 8 / 5);
         if (d <= 0) { b.recycle(); return "더 이어 붙일 수 없는 화면이에요"; }
+        // Moved further than the cut line allows: the rows in between are still in prev, below its cut.
+        int gap = Math.max(0, rTop - (takenHere - (offset + d)));
         // Safety: never glue a doubtful seam. Stop and keep what's already stitched instead.
         if (Stitcher.matchRatio(prevSeg, seg, info, rTop, band, d) < MIN_MATCH
-                || takenHere - (offset + d) < rTop) { // moved past the trusted band: rows would be missing
+                || cutHere + gap > band) { // even prev doesn't hold the missing rows
             b.recycle();
             return "화면이 바뀌어 멈췄어요 · '완료'로 저장";
         }
@@ -251,6 +253,11 @@ final class ScrollCapture {
             pieces.add(rows(prev, 0, cut)); // header + first part of the list
             taken = cut;
             height = cut;
+        }
+        if (gap > 0) {
+            pieces.add(rows(prev, cut, cut + gap)); // fill from the previous frame, below its cut
+            height += gap;
+            taken += gap;
         }
         offset += d;
         int[] strip = Stitcher.strip(taken, offset, cut, regionTop);

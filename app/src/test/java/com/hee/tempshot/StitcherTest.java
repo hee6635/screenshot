@@ -133,4 +133,14 @@ public class StitcherTest {
         Stitcher.rowHashes(withBar, w, 1, h2, new boolean[1]);
         assertEquals(h1[0], h2[0]);
     }
+
+    @Test
+    public void headerWithChangingTimerInOneCornerStillCountsAsFixed() {
+        int[] page = new Random(7).ints(1000).toArray();
+        int[] sa = segs(frame(page, 0)), sb = segs(frame(page, 40));
+        // Screen-recorder timer in the header's right segment changes between the two shots.
+        sb[3 * Stitcher.SEGMENTS + 3] = 12345;
+        assertEquals(HEADER, Stitcher.sameTopRows(sa, sb, H));
+        assertEquals(FOOTER, Stitcher.sameBottomRows(sa, sb, H, H - HEADER));
+    }
 }
