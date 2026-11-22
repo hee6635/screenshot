@@ -168,7 +168,7 @@ final class ScrollCapture {
                 svc.handler.post(() -> guard(() -> {
                     busy = false;
                     if (finished) return;
-                    label.setText("캡처 중 · " + pages + "페이지");
+                    label.setText(pages + "페이지");
                     if (stop != null) {
                         ended = true;
                         full = stop.equals(STOP_FULL);
@@ -319,7 +319,7 @@ final class ScrollCapture {
         ended = false; // auto mode may have stopped because nothing moved; manual takes over from here
         pressed = false;
         directBtn.setVisibility(View.GONE);
-        label.setText("직접 내리기 · " + pages + "페이지");
+        label.setText("직접 · " + pages + "페이지");
         guide = new GuideView(svc);
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
@@ -342,7 +342,7 @@ final class ScrollCapture {
         if (finished) return;
         directBtn.setVisibility(View.VISIBLE);
         shootBtn.setVisibility(View.GONE);
-        label.setText("캡처 중 · " + pages + "페이지");
+        label.setText(pages + "페이지");
     }
 
     /** Puts the line back on the cut row and sticks it to whatever element sits there now. */
@@ -366,7 +366,11 @@ final class ScrollCapture {
         drawGuide();
     }
 
-    /** Smallest visible on-screen element crossing row y (a message bubble, a card, a text line). */
+    /**
+     * Smallest visible on-screen element crossing row y (a message bubble, a card, a text line). If row y
+     * falls in the gap between messages, the element whose top edge is nearest to y (within 20% of the
+     * screen) is used; the line keeps its offset from that element either way.
+     */
     private AccessibilityNodeInfo elementAt(float y) {
         ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
         for (AccessibilityWindowInfo win : svc.getWindows()) {
@@ -374,27 +378,32 @@ final class ScrollCapture {
             AccessibilityNodeInfo root = win.getRoot();
             if (root != null) q.add(root);
         }
-        AccessibilityNodeInfo best = null;
+        AccessibilityNodeInfo best = null, nearest = null;
         long bestArea = Long.MAX_VALUE;
+        float nearestDist = h * 0.2f;
         Rect r = new Rect();
         int visited = 0;
         while (!q.isEmpty() && visited++ < 1500) { // shortcut: very large trees are cut off; the fixed line covers that
             AccessibilityNodeInfo n = q.poll();
             if (!n.isVisibleToUser()) continue;
             n.getBoundsInScreen(r);
-            if (r.top <= y && r.bottom > y && r.height() < h * 0.45f && r.width() > w * 0.15f) {
+            boolean sized = r.height() > 0 && r.height() < h * 0.45f && r.width() > w * 0.15f;
+            if (sized && r.top <= y && r.bottom > y) {
                 long area = (long) r.width() * r.height();
                 if (area < bestArea) {
                     bestArea = area;
                     best = n;
                 }
+            } else if (sized && Math.abs(r.top - y) < nearestDist) {
+                nearestDist = Math.abs(r.top - y);
+                nearest = n;
             }
             for (int i = 0; i < n.getChildCount(); i++) {
                 AccessibilityNodeInfo child = n.getChild(i);
                 if (child != null) q.add(child);
             }
         }
-        return best;
+        return best != null ? best : nearest;
     }
 
     /** Follows the anchored element; captures once the line rests inside the band. Main thread, every 80ms. */
@@ -453,7 +462,7 @@ final class ScrollCapture {
                 svc.handler.post(() -> guard(() -> {
                     busy = false;
                     if (finished || !manual) return;
-                    label.setText("직접 내리기 · " + pages + "페이지");
+                    label.setText("직접 · " + pages + "페이지");
                     if (stop == null) {
                         pill.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
                         reanchor();
@@ -493,7 +502,7 @@ final class ScrollCapture {
         thumb = ui.barThumb(ShotService.thumbnail(svc, prev));
         card.addView(thumb);
 
-        label = ui.text("캡처 중 · 1페이지", 14, ui.barText());
+        label = ui.text("1페이지", 14, ui.barText());
         label.setTypeface(Typeface.DEFAULT_BOLD);
         label.setSingleLine(true);
         LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
@@ -529,6 +538,7 @@ final class ScrollCapture {
         // Shown from the start for now (testing); otherwise it matters once auto scrolling doesn't move.
         TextView direct = ui.text("직접 내리기", 12, Ui.KEEP_BLUE);
         direct.setTypeface(Typeface.DEFAULT_BOLD);
+        direct.setSingleLine(true);
         direct.setGravity(Gravity.CENTER);
         direct.setPadding(ui.dp(10), 0, ui.dp(10), 0);
         android.graphics.drawable.GradientDrawable outline = new android.graphics.drawable.GradientDrawable();
@@ -545,6 +555,7 @@ final class ScrollCapture {
         // Manual mode without element info: the line can't follow the content, so the user taps.
         TextView shoot = ui.text("찍기", 13, 0xFFFFFFFF);
         shoot.setTypeface(Typeface.DEFAULT_BOLD);
+        shoot.setSingleLine(true);
         shoot.setGravity(Gravity.CENTER);
         shoot.setPadding(ui.dp(14), 0, ui.dp(14), 0);
         shoot.setBackground(ui.pressable(Ui.KEEP_BLUE, 12));
@@ -555,6 +566,7 @@ final class ScrollCapture {
 
         TextView done = ui.text("완료", 13, ui.dark ? 0xFF111318 : 0xFFFFFFFF);
         done.setTypeface(Typeface.DEFAULT_BOLD);
+        done.setSingleLine(true); // it was squeezed into "완/료" when the bar ran out of width
         done.setGravity(Gravity.CENTER);
         done.setPadding(ui.dp(14), 0, ui.dp(14), 0);
         done.setBackground(ui.pressable(ui.barText(), 12));
