@@ -363,8 +363,12 @@ final class ScrollCapture {
             anchorOffset = lineY - r.top;
         }
         shootBtn.setVisibility(anchor == null ? View.VISIBLE : View.GONE);
+        // shortcut: diagnostic for why the line can't follow (KakaoTalk test); remove once understood
+        if (anchor == null) svc.toast("선 고정 · " + lastScan);
         drawGuide();
     }
+
+    private String lastScan = "";
 
     /**
      * Smallest visible on-screen element crossing row y (a message bubble, a card, a text line). If row y
@@ -378,6 +382,8 @@ final class ScrollCapture {
             AccessibilityNodeInfo root = win.getRoot();
             if (root != null) q.add(root);
         }
+        int windows = 0, apps = q.size(), visited0 = 0, visible = 0;
+        for (AccessibilityWindowInfo win : svc.getWindows()) windows++;
         AccessibilityNodeInfo best = null, nearest = null;
         long bestArea = Long.MAX_VALUE;
         float nearestDist = h * 0.2f;
@@ -385,7 +391,9 @@ final class ScrollCapture {
         int visited = 0;
         while (!q.isEmpty() && visited++ < 1500) { // shortcut: very large trees are cut off; the fixed line covers that
             AccessibilityNodeInfo n = q.poll();
+            visited0++;
             if (!n.isVisibleToUser()) continue;
+            visible++;
             n.getBoundsInScreen(r);
             boolean sized = r.height() > 0 && r.height() < h * 0.45f && r.width() > w * 0.15f;
             if (sized && r.top <= y && r.bottom > y) {
@@ -403,6 +411,7 @@ final class ScrollCapture {
                 if (child != null) q.add(child);
             }
         }
+        lastScan = "창 " + windows + " · 앱 " + apps + " · 요소 " + visited0 + " · 보이는 요소 " + visible;
         return best != null ? best : nearest;
     }
 
