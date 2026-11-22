@@ -73,6 +73,8 @@ final class ScrollCapture {
     private float anchorOffset, lineY, lineStartY, lastLineY;
     private long lastMoveAt;
     private int lineState;
+    private boolean eventMode;  // no element to follow, but the app reports scroll amounts: move the line by those
+    private int scrollEvents;   // diagnostic count
     private final Runnable poll = this::pollAnchor;
 
     ScrollCapture(ShotService svc, Bitmap first, int[] bars, Uri original, Rect list) {
@@ -379,7 +381,7 @@ final class ScrollCapture {
             anchor.getBoundsInScreen(r);
             anchorOffset = lineY - r.top;
         }
-        shootBtn.setVisibility(anchor == null ? View.VISIBLE : View.GONE);
+        shootBtn.setVisibility(anchor == null && !eventMode ? View.VISIBLE : View.GONE);
         drawGuide();
     }
 
@@ -434,7 +436,11 @@ final class ScrollCapture {
     private void pollAnchor() {
         if (!manual || finished) return;
         guard(() -> {
-            if (anchor == null || busy) return;
+            if (busy) return;
+            if (anchor == null) {
+                if (eventMode) settleCheck(); // the line is moved by onScrolled
+                return;
+            }
             Rect r = new Rect();
             boolean alive = anchor.refresh() && anchor.isVisibleToUser();
             if (alive) anchor.getBoundsInScreen(r);
@@ -444,34 +450,57 @@ final class ScrollCapture {
                 anchor = null;
                 lineY = lineStartY;
                 lineState = GuideView.NORMAL;
-                shootBtn.setVisibility(View.VISIBLE);
+                shootBtn.setVisibility(eventMode ? View.GONE : View.VISIBLE);
                 say("선을 놓쳤어요 · 맞추고 [찍기]");
                 drawGuide();
                 return;
             }
-            long now = SystemClock.uptimeMillis();
-            if (Math.abs(y - lastLineY) > 2) {
-                lastMoveAt = now;
-                lastLineY = y;
-                waitForMove = false;
-            }
-            lineY = y;
-            int state = y < bandTop() ? GuideView.OVER : y <= bandBottom() ? GuideView.IN : GuideView.NORMAL;
-            if (state != lineState) {
-                if (state == GuideView.OVER) pill.performHapticFeedback(HapticFeedbackConstants.REJECT);
-                lineState = state;
-            }
-            drawGuide();
-            if (state == GuideView.IN && !waitForMove && now - lastMoveAt >= SETTLE_MS) {
-                manualShoot(Math.round(lineStartY - y));
-            }
+            moveLine(y);
+            settleCheck();
         });
         svc.handler.postDelayed(poll, POLL_MS);
     }
 
+    /** Scroll amount reported by the app (TYPE_VIEW_SCROLLED). Main thread. */
+    void onScrolled(int dy) {
+        if (!manual || finished || busy || anchor != null || dy == 0) return;
+        guard(() -> {
+            scrollEvents++;
+            if (!eventMode) {
+                eventMode = true;
+                shootBtn.setVisibility(View.GONE); // the line follows now; no need to tap
+            }
+            moveLine(lineY - dy);
+        });
+    }
+
+    private void moveLine(float y) {
+        if (Math.abs(y - lastLineY) > 2) {
+            lastMoveAt = SystemClock.uptimeMillis();
+            lastLineY = y;
+            waitForMove = false;
+        }
+        lineY = y;
+        int state = y < bandTop() ? GuideView.OVER : y <= bandBottom() ? GuideView.IN : GuideView.NORMAL;
+        if (state != lineState) {
+            if (state == GuideView.OVER) pill.performHapticFeedback(HapticFeedbackConstants.REJECT);
+            lineState = state;
+        }
+        drawGuide();
+    }
+
+    /** Captures once the line has rested inside the band for SETTLE_MS. */
+    private void settleCheck() {
+        if (lineState == GuideView.IN && !waitForMove && SystemClock.uptimeMillis() - lastMoveAt >= SETTLE_MS) {
+            manualShoot(Math.round(lineStartY - lineY));
+        }
+    }
+
     private void drawGuide() {
         // shortcut: lastScan is a diagnostic shown next to the fixed line (KakaoTalk test); drop once understood
-        if (guide != null) guide.set(bandTop(), bandBottom(), lineY, lineState, anchor == null, anchor == null ? lastScan : "");
+        boolean fixed = anchor == null && !eventMode;
+        if (guide != null) guide.set(bandTop(), bandBottom(), lineY, lineState, fixed,
+                anchor == null ? lastScan + " · 이벤트 " + scrollEvents : "");
     }
 
     /** Captures the hand-scrolled screen and stitches it. expectedShift: how far the line moved (0 = unknown). */
@@ -531,9 +560,9 @@ final class ScrollCapture {
         label.setTypeface(Typeface.DEFAULT_BOLD);
         label.setSingleLine(true);
         label.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        label.setMaxWidth(ui.dp(170)); // messages share this spot; keep the buttons on screen
-        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        // Fixed bar width with a flexible label: the label and buttons change during capture, and a
+        // wrap-content window squeezed "완료" into a blob.
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         labelLp.leftMargin = ui.dp(10);
         labelLp.gravity = Gravity.CENTER_VERTICAL;
         card.addView(label, labelLp);
@@ -603,6 +632,10 @@ final class ScrollCapture {
         dl.gravity = Gravity.CENTER_VERTICAL;
         card.addView(done, dl);
 
-        svc.getSystemService(WindowManager.class).addView(pill, ui.barWindow(padV));
+        ((android.widget.FrameLayout.LayoutParams) card.getLayoutParams()).width = LinearLayout.LayoutParams.MATCH_PARENT;
+        WindowManager.LayoutParams lp = ui.barWindow(padV);
+        int screen = svc.getResources().getDisplayMetrics().widthPixels;
+        lp.width = Math.min(screen - 2 * ui.dp(14), ui.dp(380)) + 2 * padH;
+        svc.getSystemService(WindowManager.class).addView(pill, lp);
     }
 }

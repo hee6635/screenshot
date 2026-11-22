@@ -582,6 +582,12 @@ public class ShotService extends AccessibilityService {
         handler.post(() -> Toast.makeText(this, msg, Toast.LENGTH_SHORT).show());
     }
 
-    @Override public void onAccessibilityEvent(AccessibilityEvent e) {}
+    @Override public void onAccessibilityEvent(AccessibilityEvent e) {
+        // Manual scroll capture moves its guide line by the app's own scroll amounts when it can't
+        // follow an on-screen element (KakaoTalk exposes almost no elements in chats).
+        if (scroll != null && e.getEventType() == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
+            scroll.onScrolled(e.getScrollDeltaY());
+        }
+    }
     @Override public void onInterrupt() {}
 }
