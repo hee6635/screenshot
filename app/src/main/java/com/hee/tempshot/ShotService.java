@@ -468,13 +468,13 @@ public class ShotService extends AccessibilityService {
         return box;
     }
 
-    /** "7일 후 휴지통 ⚙": text and gear are separate views in a wrap-content row, so the gear is never cut. Opens settings. */
+    /** "7일 정리 ⚙": text and gear are separate views in a wrap-content row, so the gear is never cut. Opens settings. */
     private View periodChip(Ui ui) {
         LinearLayout chip = new LinearLayout(this);
         chip.setGravity(Gravity.CENTER_VERTICAL);
         chip.setPadding(ui.dp(6), ui.dp(2), ui.dp(6), ui.dp(2));
         chip.setBackground(ui.pressable(ui.barChip(), 6));
-        TextView t = ui.text(days(this) + "일 후 휴지통", 11.5f, ui.barSubText());
+        TextView t = ui.text(days(this) + "일 정리", 11.5f, ui.barSubText());
         t.setSingleLine(true);
         chip.addView(t);
         ImageView gear = new ImageView(this);
@@ -483,7 +483,7 @@ public class ShotService extends AccessibilityService {
         LinearLayout.LayoutParams g = new LinearLayout.LayoutParams(ui.dp(11), ui.dp(11));
         g.leftMargin = ui.dp(4);
         chip.addView(gear, g);
-        chip.setContentDescription(days(this) + "일 후 휴지통으로 이동, 설정 열기");
+        chip.setContentDescription(days(this) + "일 뒤 휴지통으로 정리, 설정 열기");
         chip.setOnClickListener(v -> {
             // Launch while our toolbar window is still visible; Android trusts launches from visible apps.
             startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
