@@ -101,7 +101,9 @@ final class ScrollCapture {
         if (busy || ended || finished) return;
         busy = true;
         int top = regionBottom > 0 ? regionTop : 0, listH = (regionBottom > 0 ? regionBottom : h) - top;
-        float x = w / 2f, y0 = top + listH * 0.8f, y1 = y0 - listH * SWIPE;
+        // Swipe through the middle of the list (65% → 20%): starting low lands on floating input panels
+        // (e.g. the Claude app's composer covers the bottom of its list) and nothing scrolls.
+        float x = w / 2f, y0 = top + listH * 0.65f, y1 = y0 - listH * SWIPE;
         Path drag = new Path();
         drag.moveTo(x, y0);
         drag.lineTo(x, y1);

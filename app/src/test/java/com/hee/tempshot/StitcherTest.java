@@ -79,4 +79,14 @@ public class StitcherTest {
         assertEquals(100, s[0]);
         assertEquals(700, s[1]);
     }
+
+    @Test
+    public void shortMoveAtEndOfPageBeatsSwipeWindow() {
+        // Hit the bottom: moved only 12 rows although the swipe expected ~80.
+        // A few repeated rows also line up at 80 by chance; the real shift must still win.
+        int[] page = new Random(3).ints(1000).toArray();
+        for (int i = 0; i < 8; i++) page[100 + i] = page[20 + i]; // chance match 80 rows apart
+        int[] a = frame(page, 0), b = frame(page, 12);
+        assertEquals(12, Stitcher.findShift(a, b, allInfo(), HEADER, H - FOOTER, 60, 110));
+    }
 }

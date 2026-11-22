@@ -39,7 +39,8 @@ final class Stitcher {
 
     /**
      * Finds d where b[y] == a[y + d] inside rows [top, bottom). Votes per candidate shift and
-     * prefers [minD, maxD] (the swipe distance) so repeating list items don't pick a wrong period.
+     * prefers [minD, maxD] (the swipe distance) when it fully lines up, so repeating list items don't
+     * pick a wrong period; otherwise the shift with the most matching rows wins.
      * Returns -1 when nothing lines up.
      */
     static int findShift(int[] a, int[] b, boolean[] infoB, int top, int bottom, int minD, int maxD) {
@@ -55,8 +56,15 @@ final class Stitcher {
                 if (d > 0 && d < votes.length) votes[d]++;
             }
         }
-        int best = best(votes, Math.max(1, minD), Math.min(votes.length - 1, maxD));
-        return best != -1 ? best : best(votes, 1, votes.length - 1);
+        // informative rows in [top, top + i), to know how many rows could match for a given shift
+        int[] infoBefore = new int[bottom - top + 1];
+        for (int y = top; y < bottom; y++) infoBefore[y - top + 1] = infoBefore[y - top] + (infoB[y] ? 1 : 0);
+        int window = best(votes, Math.max(1, minD), Math.min(votes.length - 1, maxD));
+        // Trust the swipe window only if (nearly) every overlapping row matches there: true for the real
+        // shift and for repeating list items, not for a few chance matches when the list barely moved
+        // (end of the page). Otherwise take the shift with the most matching rows.
+        if (window != -1 && votes[window] * 10 >= infoBefore[bottom - top - window] * 9) return window;
+        return best(votes, 1, votes.length - 1);
     }
 
     /**
