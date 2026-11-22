@@ -342,14 +342,7 @@ public class ShotService extends AccessibilityService {
         GlowFrame bar = new GlowFrame(this, card, ui.barHairline(), Ui.BAR_RADIUS, padH, padV, false);
         bar.onSwipeDown = this::hideToolbar;
 
-        ImageView preview = ui.barThumb(thumb);
-        preview.setContentDescription("미리보기 열기");
-        preview.setOnClickListener(v -> {
-            startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(uri, "image/png")
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION));
-            hideToolbarNow();
-        });
-        card.addView(preview);
+        card.addView(shareThumb(ui, uri, thumb));
 
         LinearLayout info = new LinearLayout(this);
         info.setOrientation(LinearLayout.VERTICAL);
@@ -415,6 +408,72 @@ public class ShotService extends AccessibilityService {
         bar.setTranslationY(ui.dp(40));
         bar.animate().alpha(1f).translationY(0).setDuration(220).start();
         handler.postDelayed(hideToolbarRunnable, TOOLBAR_MS);
+    }
+
+    /**
+     * Thumbnail that shares the shot (tap) or opens it (long press), with a small share badge that
+     * pops in and nudges twice so it reads as "tap to share".
+     */
+    private View shareThumb(Ui ui, Uri uri, Bitmap thumb) {
+        ImageView preview = ui.barThumb(thumb);
+        android.widget.FrameLayout box = new android.widget.FrameLayout(this);
+        box.setClipChildren(false);
+        box.setLayoutParams(preview.getLayoutParams()); // 36x48dp slot in the card
+        box.addView(preview, new android.widget.FrameLayout.LayoutParams(-1, -1));
+
+        ImageView badge = new ImageView(this);
+        badge.setImageResource(R.drawable.ic_share);
+        badge.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
+        badge.setPadding(ui.dp(3.5f), ui.dp(3.5f), ui.dp(3.5f), ui.dp(3.5f));
+        android.graphics.drawable.GradientDrawable dot = new android.graphics.drawable.GradientDrawable();
+        dot.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        dot.setColor(Ui.KEEP_BLUE);
+        dot.setStroke(ui.dp(1.5f), ui.barBg() | 0xFF000000); // ring in the bar color separates it from the photo
+        badge.setBackground(dot);
+        badge.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        android.widget.FrameLayout.LayoutParams b = new android.widget.FrameLayout.LayoutParams(
+                ui.dp(18), ui.dp(18), Gravity.BOTTOM | Gravity.END);
+        b.setMargins(0, 0, -ui.dp(5), -ui.dp(4)); // hang off the corner, inside the card's padding
+        box.addView(badge, b);
+
+        box.setContentDescription("공유하기 (길게 누르면 열기)");
+        box.setOnClickListener(v -> {
+            Intent send = new Intent(Intent.ACTION_SEND).setType("image/png")
+                    .putExtra(Intent.EXTRA_STREAM, uri)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            send.setClipData(ClipData.newRawUri(null, uri)); // shows the preview in the share sheet
+            startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            hideToolbarNow();
+        });
+        box.setOnLongClickListener(v -> {
+            startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(uri, "image/png")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION));
+            hideToolbarNow();
+            return true;
+        });
+        // Press feedback: the thumbnail dips slightly.
+        box.setOnTouchListener((v, e) -> {
+            int act = e.getActionMasked();
+            if (act == android.view.MotionEvent.ACTION_DOWN) v.animate().scaleX(0.93f).scaleY(0.93f).setDuration(90).start();
+            else if (act == android.view.MotionEvent.ACTION_UP || act == android.view.MotionEvent.ACTION_CANCEL)
+                v.animate().scaleX(1f).scaleY(1f).setDuration(140).start();
+            return false; // let click / long click run
+        });
+
+        // Pop in after the bar slides up, then a little "out and back" nudge, twice.
+        badge.setScaleX(0f);
+        badge.setScaleY(0f);
+        float n = ui.dp(2);
+        Runnable nudge = () -> badge.animate().translationX(n).translationY(-n).setDuration(140)
+                .withEndAction(() -> badge.animate().translationX(0).translationY(0).setDuration(160).start()).start();
+        badge.animate().scaleX(1f).scaleY(1f).setStartDelay(320).setDuration(280)
+                .setInterpolator(new android.view.animation.OvershootInterpolator(2.5f))
+                .withEndAction(() -> {
+                    badge.animate().setStartDelay(0).setInterpolator(null);
+                    nudge.run();
+                    badge.postDelayed(nudge, 700);
+                }).start();
+        return box;
     }
 
     /** "7일 삭제 ⚙": text and gear are separate views in a wrap-content row, so the gear is never cut. Opens settings. */
