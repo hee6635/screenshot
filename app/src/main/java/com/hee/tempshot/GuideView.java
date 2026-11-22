@@ -26,6 +26,7 @@ final class GuideView extends View {
     private float bandTop, bandBottom, lineY;
     private int state;
     private boolean fixed;
+    private String note = "";
 
     GuideView(Context c) {
         super(c);
@@ -39,7 +40,8 @@ final class GuideView extends View {
     }
 
     /** fixed = the line can't follow the content (no element info); it stays put and [찍기] is used. */
-    void set(float bandTop, float bandBottom, float lineY, int state, boolean fixed) {
+    void set(float bandTop, float bandBottom, float lineY, int state, boolean fixed, String note) {
+        this.note = note;
         this.bandTop = bandTop;
         this.bandBottom = bandBottom;
         this.lineY = lineY;
@@ -70,6 +72,7 @@ final class GuideView extends View {
                 : in ? "✓ 놓으면 찍어요"
                 : fixed ? "이 줄을 띠 안으로 올리고 [찍기]" : "이 선을 위로";
         label(c, msg, 10 * dp, lineY, color, 0xFFFFFFFF, false);
+        if (!note.isEmpty()) label(c, note, 10 * dp, lineY + 24 * dp, 0xE6191F28, 0xFFFFFFFF, false);
     }
 
     private void label(Canvas c, String s, float x, float cy, int bg, int fg, boolean alignRight) {

@@ -118,7 +118,7 @@ final class ScrollCapture {
                 pressed = false;
                 ended = true;
                 if (pill != null) pill.setVisibility(View.VISIBLE);
-                svc.toast("스크롤 캡처 중 오류가 났어요. '완료'로 지금까지 저장할 수 있어요");
+                say("오류가 났어요 · '완료'로 저장");
             });
         }
     }
@@ -173,8 +173,7 @@ final class ScrollCapture {
                         ended = true;
                         full = stop.equals(STOP_FULL);
                         // Nothing moved on the very first step: the app likely ignores injected swipes.
-                        svc.toast(stop.equals(STOP_END) && pages == 1
-                                ? "자동으로 안 내려가요. [직접 내리기]로 손으로 내려 보세요" : stop);
+                        say(stop.equals(STOP_END) && pages == 1 ? "자동으로 안 내려가요 · [직접 내리기]" : stop);
                     } else if (pressed) {
                         step();
                     }
@@ -187,8 +186,25 @@ final class ScrollCapture {
         if (pill != null) pill.setVisibility(View.VISIBLE);
         busy = false;
         pressed = false;
-        svc.toast(msg);
+        say(msg);
     }
+
+    /**
+     * Shows a short message in the bar's label for a few seconds. Toasts from the accessibility service
+     * don't appear on the user's Galaxy, so messages go in the bar, which is always on screen.
+     */
+    private void say(String msg) {
+        svc.handler.post(() -> {
+            if (label == null || finished) return;
+            label.setText(msg);
+            svc.handler.removeCallbacks(restoreLabel);
+            svc.handler.postDelayed(restoreLabel, 3000);
+        });
+    }
+
+    private final Runnable restoreLabel = () -> {
+        if (label != null) label.setText(manual ? "직접 · " + pages + "페이지" : pages + "페이지");
+    };
 
     private static final String STOP_END = "끝까지 캡처했어요";
     private static final String STOP_FULL = "최대 길이까지 캡처했어요";
@@ -223,7 +239,7 @@ final class ScrollCapture {
         if (Stitcher.matchRatio(prevSeg, seg, info, regionTop, band, d) < MIN_MATCH
                 || taken - (offset + d) < regionTop) { // moved past the trusted band: rows would be missing
             b.recycle();
-            return "화면이 바뀌어서 여기까지만 이어 붙였어요. '완료'를 눌러 저장하세요";
+            return "화면이 바뀌어 멈췄어요 · '완료'로 저장";
         }
         offset += d;
         int[] strip = Stitcher.strip(taken, offset, cut, regionTop);
@@ -356,6 +372,7 @@ final class ScrollCapture {
             anchor = elementAt(lineY);
         } catch (RuntimeException e) {
             // Best effort: windows can change mid-walk; fall back to the fixed line.
+            lastScan = "검색 오류: " + e.getClass().getSimpleName();
         }
         if (anchor != null) {
             Rect r = new Rect();
@@ -363,8 +380,6 @@ final class ScrollCapture {
             anchorOffset = lineY - r.top;
         }
         shootBtn.setVisibility(anchor == null ? View.VISIBLE : View.GONE);
-        // shortcut: diagnostic for why the line can't follow (KakaoTalk test); remove once understood
-        if (anchor == null) svc.toast("선 고정 · " + lastScan);
         drawGuide();
     }
 
@@ -430,7 +445,7 @@ final class ScrollCapture {
                 lineY = lineStartY;
                 lineState = GuideView.NORMAL;
                 shootBtn.setVisibility(View.VISIBLE);
-                svc.toast("선을 놓쳤어요. 그 줄을 띠 안으로 맞춘 뒤 [찍기]를 눌러 주세요");
+                say("선을 놓쳤어요 · 맞추고 [찍기]");
                 drawGuide();
                 return;
             }
@@ -455,7 +470,8 @@ final class ScrollCapture {
     }
 
     private void drawGuide() {
-        if (guide != null) guide.set(bandTop(), bandBottom(), lineY, lineState, anchor == null);
+        // shortcut: lastScan is a diagnostic shown next to the fixed line (KakaoTalk test); drop once understood
+        if (guide != null) guide.set(bandTop(), bandBottom(), lineY, lineState, anchor == null, anchor == null ? lastScan : "");
     }
 
     /** Captures the hand-scrolled screen and stitches it. expectedShift: how far the line moved (0 = unknown). */
@@ -477,20 +493,20 @@ final class ScrollCapture {
                         reanchor();
                     } else if (stop.equals(STOP_FULL)) {
                         full = true;
-                        svc.toast(stop);
+                        say(stop);
                         stopManual();
                     } else {
                         // Not glued (moved too far, or the screen changed): stay, let the user adjust.
                         waitForMove = true;
                         pill.performHapticFeedback(HapticFeedbackConstants.REJECT);
-                        svc.toast("이어 붙이지 못했어요. 조금 움직였다가 띠 안에서 다시 멈춰 주세요");
+                        say("못 이어 붙였어요 · 다시 멈춰 주세요");
                     }
                 }));
             })).start();
         }), () -> {
             showOverlays();
             busy = false;
-            svc.toast("캡처 실패");
+            say("캡처 실패");
         })), 80);
     }
 
@@ -514,6 +530,8 @@ final class ScrollCapture {
         label = ui.text("1페이지", 14, ui.barText());
         label.setTypeface(Typeface.DEFAULT_BOLD);
         label.setSingleLine(true);
+        label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        label.setMaxWidth(ui.dp(170)); // messages share this spot; keep the buttons on screen
         LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         labelLp.leftMargin = ui.dp(10);
