@@ -353,7 +353,7 @@ public class ShotService extends AccessibilityService {
         info.addView(periodChip(ui));
         LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        infoLp.leftMargin = ui.dp(10) - ui.dp(6); // keep 10dp from the thumbnail; its slot is 6dp wider
+        infoLp.leftMargin = ui.dp(10) - ui.dp(5); // keep 10dp from the thumbnail; its slot is 5dp wider
         infoLp.gravity = Gravity.CENTER_VERTICAL;
         card.addView(info, infoLp);
 
@@ -414,14 +414,14 @@ public class ShotService extends AccessibilityService {
     }
 
     /**
-     * Thumbnail that shares the shot (tap) or opens it (long press), with a small share badge that
-     * pops in and nudges twice so it reads as "tap to share".
+     * Thumbnail that shares the shot (tap) or opens it (long press), with a small static share badge
+     * so it reads as "tap to share".
      */
     private View shareThumb(Ui ui, Uri uri, Bitmap thumb) {
         ImageView preview = ui.barThumb(thumb);
         // The slot is 6dp wider than the 36x48dp thumbnail so the badge sits fully inside it, straddling
         // the thumbnail's corner. Overhanging the slot got it clipped into a half circle.
-        int extra = ui.dp(6);
+        int extra = ui.dp(5);
         android.widget.FrameLayout box = new android.widget.FrameLayout(this);
         box.setLayoutParams(new LinearLayout.LayoutParams(ui.dp(36) + extra, ui.dp(48)));
         box.addView(preview, new android.widget.FrameLayout.LayoutParams(ui.dp(36), ui.dp(48), Gravity.START));
@@ -429,15 +429,15 @@ public class ShotService extends AccessibilityService {
         ImageView badge = new ImageView(this);
         badge.setImageResource(R.drawable.ic_share);
         badge.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
-        badge.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4));
+        badge.setPadding(ui.dp(3.5f), ui.dp(3.5f), ui.dp(3.5f), ui.dp(3.5f));
         android.graphics.drawable.GradientDrawable dot = new android.graphics.drawable.GradientDrawable();
         dot.setShape(android.graphics.drawable.GradientDrawable.OVAL);
         dot.setColor(Ui.KEEP_BLUE);
-        dot.setStroke(ui.dp(2), ui.barBg() | 0xFF000000); // ring in the bar color separates it from the photo
+        dot.setStroke(ui.dp(1.5f), ui.barBg() | 0xFF000000); // ring in the bar color separates it from the photo
         badge.setBackground(dot);
         badge.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         android.widget.FrameLayout.LayoutParams b = new android.widget.FrameLayout.LayoutParams(
-                ui.dp(18), ui.dp(18), Gravity.BOTTOM | Gravity.END);
+                ui.dp(15), ui.dp(15), Gravity.BOTTOM | Gravity.END);
         b.bottomMargin = ui.dp(2);
         box.addView(badge, b);
 
@@ -465,19 +465,6 @@ public class ShotService extends AccessibilityService {
             return false; // let click / long click run
         });
 
-        // Pop in after the bar slides up, then a little "out and back" nudge, twice.
-        badge.setScaleX(0f);
-        badge.setScaleY(0f);
-        float n = ui.dp(2);
-        Runnable nudge = () -> badge.animate().translationX(n).translationY(-n).setDuration(140)
-                .withEndAction(() -> badge.animate().translationX(0).translationY(0).setDuration(160).start()).start();
-        badge.animate().scaleX(1f).scaleY(1f).setStartDelay(320).setDuration(280)
-                .setInterpolator(new android.view.animation.OvershootInterpolator(2.5f))
-                .withEndAction(() -> {
-                    badge.animate().setStartDelay(0).setInterpolator(null);
-                    nudge.run();
-                    badge.postDelayed(nudge, 700);
-                }).start();
         return box;
     }
 
