@@ -126,7 +126,7 @@ final class ScrollCapture {
                 busy = false;
                 pressed = false;
                 ended = true;
-                if (pill != null) pill.setVisibility(View.VISIBLE);
+                if (pill != null) { pill.setVisibility(View.VISIBLE); pill.setAlpha(1f); }
                 say("오류가 났어요 · '완료'로 저장");
             });
         }
@@ -155,7 +155,9 @@ final class ScrollCapture {
             hold.moveTo(x, y1);
             hold.lineTo(x, y1 + 1);
             dispatch(move.continueStroke(hold, 0, 200, false), () -> {
-                pill.setVisibility(View.INVISIBLE); // keep our own bar out of the shot
+                // Keep our own bar out of the shot by making it transparent, not INVISIBLE: hiding the
+                // window cancels the finger still holding ⌄⌄, which stopped "hold to keep scrolling".
+                pill.setAlpha(0f);
                 long gestureEnd = SystemClock.uptimeMillis();
                 svc.handler.postDelayed(() -> waitStill(gestureEnd), MIN_WAIT_MS);
             });
@@ -187,7 +189,7 @@ final class ScrollCapture {
     private void shootStep() {
         if (finished) return;
         svc.shoot(frame -> guard(() -> {
-            pill.setVisibility(View.VISIBLE);
+            pill.setAlpha(1f);
             boolean known = scrollSeen && scrollSum > 0; // read here: onScrolled writes it on this thread
             int moved = known ? scrollSum : 0;
             new Thread(() -> guard(() -> {
@@ -216,7 +218,7 @@ final class ScrollCapture {
     }
 
     private void stepFailed(String msg) {
-        if (pill != null) pill.setVisibility(View.VISIBLE);
+        if (pill != null) { pill.setVisibility(View.VISIBLE); pill.setAlpha(1f); }
         busy = false;
         pressed = false;
         say(msg);
