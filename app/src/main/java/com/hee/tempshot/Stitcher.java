@@ -139,6 +139,98 @@ final class Stitcher {
         return new int[]{y0, Math.max(y0, cut)};
     }
 
+    // --- tolerant matching ---
+    // Exact hashes break on Chrome, WebViews and Compose: content scrolls by fractional pixels, so the
+    // same text is anti-aliased a little differently in every frame. Signatures average the brightness
+    // of SIG blocks per row, and two rows count as the same when the blocks differ only slightly.
+
+    static final int SIG = 48;        // brightness blocks per row
+    static final int ROW_TOL = 10;    // mean block difference (0..255) still treated as the same row
+    static final float TOL_MATCH = 0.85f; // share of rows that must line up for a tolerant seam
+
+    /** SIG brightness averages per row (sig[y * SIG + k]) over the columns rowHashes uses; info = row has detail. */
+    static void rowSigs(int[] px, int w, int h, byte[] sig, boolean[] info) {
+        int x0 = w * 3 / 100, x1 = w * 94 / 100, span = Math.max(1, (x1 - x0) / SIG);
+        for (int y = 0; y < h; y++) {
+            int base = y * w, min = 255, max = 0;
+            for (int k = 0; k < SIG; k++) {
+                int from = x0 + k * span, to = k == SIG - 1 ? x1 : from + span, sum = 0, n = 0;
+                for (int x = from; x < to; x += 2) {
+                    int p = px[base + x];
+                    sum += (((p >> 16) & 255) * 77 + ((p >> 8) & 255) * 150 + (p & 255) * 29) >> 8;
+                    n++;
+                }
+                int l = n == 0 ? 0 : sum / n;
+                sig[y * SIG + k] = (byte) l;
+                if (l < min) min = l;
+                if (l > max) max = l;
+            }
+            info[y] = max - min >= 6; // plain background rows match anything
+        }
+    }
+
+    /** True if row ya of a and row yb of b are the same within ROW_TOL. */
+    static boolean near(byte[] a, int ya, byte[] b, int yb) {
+        int limit = ROW_TOL * SIG, sum = 0, ia = ya * SIG, ib = yb * SIG;
+        for (int k = 0; k < SIG; k++) {
+            sum += Math.abs((a[ia + k] & 255) - (b[ib + k] & 255));
+            if (sum > limit) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Share of informative rows of b in [top, bottom - d) that match a shifted by d (b[y] ≈ a[y + d]).
+     * step > 1 samples every step-th row (coarse search). Returns -1 when too few rows overlap to judge.
+     */
+    static float tolRatio(byte[] a, byte[] b, boolean[] infoB, int top, int bottom, int d, int step) {
+        int match = 0, total = 0;
+        for (int y = top; y + d < bottom; y += step) {
+            if (!infoB[y]) continue;
+            total++;
+            if (near(a, y + d, b, y)) match++;
+        }
+        return total * step < 24 ? -1f : (float) match / total;
+    }
+
+    /**
+     * Shift d in [minD, maxD] where b best lines up with a, tolerating small differences. Searches
+     * every 2nd row first, then checks the best few candidates on every row.
+     * Returns {d, ratio * 1000}; d = -1 when nothing usable was found.
+     */
+    static int[] tolShift(byte[] a, byte[] b, boolean[] infoB, int top, int bottom, int minD, int maxD) {
+        minD = Math.max(1, minD);
+        maxD = Math.min(maxD, bottom - top - 24);
+        if (maxD < minD) return new int[]{-1, 0};
+        final int keep = 4;
+        int[] candD = new int[keep];
+        float[] candR = new float[keep];
+        java.util.Arrays.fill(candD, -1);
+        java.util.Arrays.fill(candR, -1f);
+        for (int d = minD; d <= maxD; d++) {
+            float r = tolRatio(a, b, infoB, top, bottom, d, 2);
+            for (int i = 0; i < keep; i++) {
+                if (r > candR[i]) {
+                    for (int j = keep - 1; j > i; j--) { candD[j] = candD[j - 1]; candR[j] = candR[j - 1]; }
+                    candD[i] = d;
+                    candR[i] = r;
+                    break;
+                }
+            }
+        }
+        int bestD = -1;
+        float bestR = -1f;
+        for (int i = 0; i < keep; i++) {
+            if (candD[i] < 0) continue;
+            // the true shift's neighbours score almost as high; look one row either side too
+            for (int d = Math.max(minD, candD[i] - 1); d <= Math.min(maxD, candD[i] + 1); d++) {
+                float r = tolRatio(a, b, infoB, top, bottom, d, 1);
+                if (r > bestR) { bestR = r; bestD = d; }
+            }
+        }
+        return new int[]{bestR < 0 ? -1 : bestD, Math.round(Math.max(0f, bestR) * 1000)};
+    }
+
     private static int best(int[] votes, int from, int to) {
         int best = -1, bestVotes = MIN_VOTES - 1;
         for (int d = from; d <= to; d++) {

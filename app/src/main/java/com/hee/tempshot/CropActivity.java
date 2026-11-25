@@ -86,7 +86,9 @@ public class CropActivity extends Activity {
             v.put(MediaStore.Images.Media.IS_PENDING, 1);
             cr.update(uri, v, null, null);
             try (OutputStream os = cr.openOutputStream(uri, "wt")) {
-                out.compress(Bitmap.CompressFormat.PNG, 100, os);
+                // keep the file's own format (scroll captures are JPEG)
+                if ("image/jpeg".equals(ShotService.mime(this, uri))) out.compress(Bitmap.CompressFormat.JPEG, 95, os);
+                else out.compress(Bitmap.CompressFormat.PNG, 100, os);
             }
             ok = true;
         } catch (Exception e) {

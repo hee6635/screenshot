@@ -143,4 +143,58 @@ public class StitcherTest {
         assertEquals(HEADER, Stitcher.sameTopRows(sa, sb, H));
         assertEquals(FOOTER, Stitcher.sameBottomRows(sa, sb, H, H - HEADER));
     }
+
+    // --- tolerant matching ---
+
+    /** Synthetic page with text-like rows; jitter adds small brightness noise like fractional-pixel anti-aliasing. */
+    private static int[] screen(int w, int h, int offset, int jitter, long seed) {
+        Random rnd = new Random(seed);
+        int[] px = new int[w * h];
+        for (int y = 0; y < h; y++) {
+            int py = y + offset;
+            Random row = new Random(py * 7919L);
+            boolean text = (py / 6) % 3 != 2; // two text lines, then a blank gap
+            for (int x = 0; x < w; x++) {
+                int l = 240;
+                if (y < 20) l = 60; // fixed header
+                else if (text) l = row.nextInt(8) < 3 ? 30 : 235;
+                if (jitter > 0) l = Math.max(0, Math.min(255, l + rnd.nextInt(2 * jitter + 1) - jitter));
+                px[y * w + x] = 0xFF000000 | l << 16 | l << 8 | l;
+            }
+        }
+        return px;
+    }
+
+    @Test
+    public void tolerantShiftSurvivesAntiAliasingNoise() {
+        int w = 200, h = 400;
+        int[] a = screen(w, h, 0, 0, 1), b = screen(w, h, 130, 6, 2); // scrolled 130, slightly different pixels
+        int[] ha = new int[h], hb = new int[h];
+        boolean[] ia = new boolean[h], ib = new boolean[h];
+        Stitcher.rowHashes(a, w, h, ha, ia);
+        Stitcher.rowHashes(b, w, h, hb, ib);
+        // exact hashes can't line anything up any more
+        assertEquals(-1, Stitcher.findShift(ha, hb, ib, 20, 380, 60, 200));
+        byte[] sa = new byte[h * Stitcher.SIG], sb = new byte[h * Stitcher.SIG];
+        boolean[] sia = new boolean[h], sib = new boolean[h];
+        Stitcher.rowSigs(a, w, h, sa, sia);
+        Stitcher.rowSigs(b, w, h, sb, sib);
+        int[] m = Stitcher.tolShift(sa, sb, sib, 20, 380, 60, 200);
+        assertEquals(130, m[0]);
+        org.junit.Assert.assertTrue(m[1] >= Stitcher.TOL_MATCH * 1000);
+        // and the unmoved pair would score far lower than the real shift
+        org.junit.Assert.assertTrue(Stitcher.tolRatio(sa, sb, sib, 20, 380, 0, 1) * 1000 < m[1]);
+    }
+
+    @Test
+    public void tolerantShiftFindsMoveOutsideTheWindow() {
+        int w = 200, h = 400;
+        int[] a = screen(w, h, 0, 3, 3), b = screen(w, h, 17, 3, 4); // end of page: only 17 rows
+        byte[] sa = new byte[h * Stitcher.SIG], sb = new byte[h * Stitcher.SIG];
+        boolean[] sia = new boolean[h], sib = new boolean[h];
+        Stitcher.rowSigs(a, w, h, sa, sia);
+        Stitcher.rowSigs(b, w, h, sb, sib);
+        int[] all = Stitcher.tolShift(sa, sb, sib, 20, 380, 1, 360);
+        assertEquals(17, all[0]);
+    }
 }

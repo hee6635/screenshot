@@ -38,10 +38,11 @@ public class ShotService extends AccessibilityService {
     static final String FOLDER = "Pictures/TempShots/";
     static final String KEEP_FOLDER = "DCIM/Screenshots/"; // same folder as Galaxy's own screenshots
     static final String PREFS = "prefs";
-    static final String KEY_DAYS = "days";
+    static final String KEY_DAYS = "days";   // old setting, read only to migrate
+    static final String KEY_HOURS = "hours"; // delete period
     static final String KEY_TRIM = "trim_bars";
     static final int DEFAULT_DAYS = 7;
-    private static final long HOUR = 60 * 60 * 1000L;
+    private static final long CLEANUP_EVERY = 10 * 60 * 1000L; // often enough for the 1-hour period
     private static final long TOOLBAR_MS = 6000;
 
     static ShotService instance;
@@ -49,7 +50,7 @@ public class ShotService extends AccessibilityService {
     private final Runnable cleanupLoop = new Runnable() {
         @Override public void run() {
             cleanup(ShotService.this);
-            handler.postDelayed(this, HOUR);
+            handler.postDelayed(this, CLEANUP_EVERY);
         }
     };
     private View toolbar;
@@ -63,8 +64,19 @@ public class ShotService extends AccessibilityService {
     private ScrollCapture scroll;
     private volatile boolean saving; // a capture is still being written; lastFull must stay alive
 
-    static int days(Context c) {
-        return c.getSharedPreferences(PREFS, MODE_PRIVATE).getInt(KEY_DAYS, DEFAULT_DAYS);
+    /** Delete period in hours. */
+    static int hours(Context c) {
+        android.content.SharedPreferences p = c.getSharedPreferences(PREFS, MODE_PRIVATE);
+        return p.contains(KEY_HOURS) ? p.getInt(KEY_HOURS, DEFAULT_DAYS * 24) : p.getInt(KEY_DAYS, DEFAULT_DAYS) * 24;
+    }
+
+    /** "1시간", "7일" */
+    static String period(Context c) {
+        return periodLabel(hours(c));
+    }
+
+    static String periodLabel(int h) {
+        return h < 24 || h % 24 != 0 ? h + "시간" : h / 24 + "일";
     }
 
     static boolean trimBars(Context c) {
@@ -75,6 +87,7 @@ public class ShotService extends AccessibilityService {
     protected void onServiceConnected() {
         instance = this;
         handler.post(cleanupLoop);
+        CleanupJob.schedule(this); // keeps cleaning even while this service is switched off
     }
 
     @Override
@@ -116,7 +129,7 @@ public class ShotService extends AccessibilityService {
             int w = bmp.getWidth(), h = bmp.getHeight();
             new Thread(() -> {
               try {
-                Uri uri = save(trim(bmp, bars));
+                Uri uri = save(trim(bmp, bars), false);
                 if (uri == null) { saving = false; return; }
                 Bitmap thumb = thumbnail(this, bmp);
                 handler.post(() -> {
@@ -137,23 +150,24 @@ public class ShotService extends AccessibilityService {
                 toast("캡처 저장 중 오류가 났어요");
               }
             }).start();
-        }, () -> { saving = false; toast("캡처 실패"); });
+        }, msg -> { saving = false; toast(msg); });
     }
 
-    /** Takes a screenshot as a software bitmap; retries when Android's 1-per-second limit hits. */
-    void shoot(Consumer<Bitmap> ok, Runnable fail) {
+    /** Takes a screenshot as a software bitmap; retries when Android's rate limit hits. fail gets a message to show. */
+    void shoot(Consumer<Bitmap> ok, Consumer<String> fail) {
         takeScreenshot(Display.DEFAULT_DISPLAY, getMainExecutor(), new TakeScreenshotCallback() {
             @Override public void onSuccess(ScreenshotResult r) {
                 Bitmap hw = Bitmap.wrapHardwareBuffer(r.getHardwareBuffer(), r.getColorSpace());
                 r.getHardwareBuffer().close();
                 Bitmap bmp = hw == null ? null : hw.copy(Bitmap.Config.ARGB_8888, false);
                 if (hw != null) hw.recycle();
-                if (bmp == null) fail.run();
+                if (bmp == null) fail.accept("캡처 실패");
                 else ok.accept(bmp);
             }
             @Override public void onFailure(int code) {
                 if (code == ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT) handler.postDelayed(() -> shoot(ok, fail), 400);
-                else fail.run();
+                else if (code == ERROR_TAKE_SCREENSHOT_SECURE_WINDOW) fail.accept("이 화면은 캡처가 막혀 있어요");
+                else fail.accept("캡처 실패");
             }
         });
     }
@@ -244,19 +258,23 @@ public class ShotService extends AccessibilityService {
         return best;
     }
 
-    /** Saves a PNG into the TempShots album. Recycles img unless it is the kept full capture. */
-    Uri save(Bitmap img) {
+    /**
+     * Saves into the TempShots album. Recycles img unless it is the kept full capture. Single shots are
+     * PNG; tall scroll captures are JPEG (a 30,000px PNG runs to tens of MB, quality 95 is ~5x smaller).
+     */
+    Uri save(Bitmap img, boolean tall) {
         ContentResolver cr = getContentResolver();
         ContentValues v = new ContentValues();
-        v.put(MediaStore.Images.Media.DISPLAY_NAME, "TempShot_" + System.currentTimeMillis() + ".png");
-        v.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
+        v.put(MediaStore.Images.Media.DISPLAY_NAME, "TempShot_" + System.currentTimeMillis() + (tall ? ".jpg" : ".png"));
+        v.put(MediaStore.Images.Media.MIME_TYPE, tall ? "image/jpeg" : "image/png");
         v.put(MediaStore.Images.Media.RELATIVE_PATH, FOLDER);
         v.put(MediaStore.Images.Media.IS_PENDING, 1);
         Uri uri = cr.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v);
         try {
             if (uri == null) { toast("저장 실패"); return null; }
             try (OutputStream out = cr.openOutputStream(uri)) {
-                img.compress(Bitmap.CompressFormat.PNG, 100, out);
+                if (tall) img.compress(Bitmap.CompressFormat.JPEG, 95, out);
+                else img.compress(Bitmap.CompressFormat.PNG, 100, out);
             } catch (Exception e) {
                 cr.delete(uri, null, null); // don't leave a half-written file behind
                 toast("저장 실패");
@@ -280,6 +298,11 @@ public class ShotService extends AccessibilityService {
         int h = Math.round(72 * c.getResources().getDisplayMetrics().density);
         int w = Math.max(1, Math.round((float) src.getWidth() * h / src.getHeight()));
         return Bitmap.createScaledBitmap(src, w, h, true);
+    }
+
+    static String mime(Context c, Uri uri) {
+        String t = c.getContentResolver().getType(uri);
+        return t != null ? t : "image/png";
     }
 
     /** Puts the image on the clipboard so it can be pasted right away. */
@@ -316,7 +339,7 @@ public class ShotService extends AccessibilityService {
             Bitmap thumb = thumbnail(this, stitched);
             Bitmap out = trim(stitched, bars);
             if (out != stitched) stitched.recycle();
-            Uri uri = save(out);
+            Uri uri = save(out, true);
             if (uri == null) return;
             try { getContentResolver().delete(original, null, null); } catch (Exception ignored) { }
             handler.post(() -> {
@@ -443,7 +466,7 @@ public class ShotService extends AccessibilityService {
 
         box.setContentDescription("공유하기 (길게 누르면 열기)");
         box.setOnClickListener(v -> {
-            Intent send = new Intent(Intent.ACTION_SEND).setType("image/png")
+            Intent send = new Intent(Intent.ACTION_SEND).setType(mime(this, uri))
                     .putExtra(Intent.EXTRA_STREAM, uri)
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             send.setClipData(ClipData.newRawUri(null, uri)); // shows the preview in the share sheet
@@ -451,7 +474,7 @@ public class ShotService extends AccessibilityService {
             hideToolbarNow();
         });
         box.setOnLongClickListener(v -> {
-            startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(uri, "image/png")
+            startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime(this, uri))
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION));
             hideToolbarNow();
             return true;
@@ -474,7 +497,7 @@ public class ShotService extends AccessibilityService {
         chip.setGravity(Gravity.CENTER_VERTICAL);
         chip.setPadding(ui.dp(6), ui.dp(2), ui.dp(6), ui.dp(2));
         chip.setBackground(ui.pressable(ui.barChip(), 6));
-        TextView t = ui.text(days(this) + "일 정리", 11.5f, ui.barSubText());
+        TextView t = ui.text(period(this) + " 정리", 11.5f, ui.barSubText());
         t.setSingleLine(true);
         chip.addView(t);
         ImageView gear = new ImageView(this);
@@ -483,7 +506,7 @@ public class ShotService extends AccessibilityService {
         LinearLayout.LayoutParams g = new LinearLayout.LayoutParams(ui.dp(11), ui.dp(11));
         g.leftMargin = ui.dp(4);
         chip.addView(gear, g);
-        chip.setContentDescription(days(this) + "일 뒤 휴지통으로 정리, 설정 열기");
+        chip.setContentDescription(period(this) + " 뒤 휴지통으로 정리, 설정 열기");
         chip.setOnClickListener(v -> {
             // Launch while our toolbar window is still visible; Android trusts launches from visible apps.
             startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
@@ -577,9 +600,17 @@ public class ShotService extends AccessibilityService {
         return c.getContentResolver().update(uri, v, null, null);
     }
 
-    /** Moves TempShots older than the configured days to the trash. Already-trashed ones aren't listed. */
+    /**
+     * Moves TempShots older than the configured period to the trash. Already-trashed ones aren't listed.
+     * Shots that aren't ours anymore (from before a reinstall) can't be moved without asking; they are
+     * collected in stuck so the settings screen can offer to trash them in one go.
+     */
     static int cleanup(Context c) {
-        long cutoffSec = System.currentTimeMillis() / 1000 - days(c) * 86400L;
+        return cleanup(c, new ArrayList<>());
+    }
+
+    static int cleanup(Context c, ArrayList<Uri> stuck) {
+        long cutoffSec = System.currentTimeMillis() / 1000 - hours(c) * 3600L;
         ContentResolver cr = c.getContentResolver();
         int deleted = 0;
         try (Cursor cur = cr.query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
@@ -592,7 +623,7 @@ public class ShotService extends AccessibilityService {
                 try {
                     deleted += trash(c, u);
                 } catch (SecurityException e) {
-                    // shortcut: files from before an app reinstall aren't ours anymore and are skipped; delete them by hand in Gallery.
+                    stuck.add(u); // not ours anymore (app reinstalled): needs the user's OK
                 }
             }
         }
@@ -606,6 +637,7 @@ public class ShotService extends AccessibilityService {
     @Override public void onAccessibilityEvent(AccessibilityEvent e) {
         // Manual scroll capture moves its guide line by the app's own scroll amounts when it can't
         // follow an on-screen element (KakaoTalk exposes almost no elements in chats).
+        // Auto mode adds the amounts up to know how far each swipe really moved the list.
         if (scroll != null && e.getEventType() == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
             scroll.onScrolled(e.getScrollDeltaY());
         }

@@ -47,6 +47,8 @@ final class ScrollCapture {
     private static final int MAX_HEIGHT = 30000;  // px, keeps the final bitmap within memory
     private static final float BAND_TOP = 0.10f, BAND_BOTTOM = 0.32f; // manual drop zone, share of the list
     private static final long POLL_MS = 80, SETTLE_MS = 300;
+    private static final long MIN_WAIT_MS = 200, QUIET_MS = 150, MAX_WAIT_MS = 800;
+    private static final int HINT_SLACK = 16; // px around the app-reported scroll distance
 
     private final ShotService svc;
     private final int[] bars;
@@ -56,10 +58,15 @@ final class ScrollCapture {
     private Bitmap prev;               // last full frame
     private int[] prevHash;
     private int[] prevSeg;             // per-row segment hashes of prev, for matchRatio
+    private byte[] prevSig;            // per-row brightness signatures of prev, for tolerant matching
     private int regionTop, regionBottom = -1; // rows of the scrolling list; -1 = infer from the first step
     private int cut, offset, taken;           // see Stitcher.strip
     private int pages = 1, height;
     private boolean pressed, busy, ended, finished, full;
+    private int retried;               // steps in a row where nothing moved; one retry before "end"
+    private int scrollSum;             // scroll distance the app reported during the current auto step
+    private boolean scrollSeen;
+    private long lastScrollAt;
 
     private GlowFrame pill;
     private TextView label;
@@ -84,7 +91,8 @@ final class ScrollCapture {
         w = first.getWidth();
         h = first.getHeight();
         prevSeg = new int[h * Stitcher.SEGMENTS];
-        prevHash = hashes(first, null, prevSeg);
+        prevSig = new byte[h * Stitcher.SIG];
+        prevHash = hashes(first, null, prevSeg, prevSig, null);
         if (list != null) {
             regionTop = Math.max(0, list.top);
             regionBottom = Math.min(h, list.bottom);
@@ -135,6 +143,8 @@ final class ScrollCapture {
         // Swipe through the middle of the list (65% → 20%): starting low lands on floating input panels
         // (e.g. the Claude app's composer covers the bottom of its list) and nothing scrolls.
         float x = w / 2f, y0 = top + listH * 0.65f, y1 = y0 - listH * SWIPE;
+        scrollSum = 0;
+        scrollSeen = false;
         Path drag = new Path();
         drag.moveTo(x, y0);
         drag.lineTo(x, y1);
@@ -146,8 +156,22 @@ final class ScrollCapture {
             hold.lineTo(x, y1 + 1);
             dispatch(move.continueStroke(hold, 0, 200, false), () -> {
                 pill.setVisibility(View.INVISIBLE); // keep our own bar out of the shot
-                svc.handler.postDelayed(() -> guard(this::shootStep), 250);
+                long gestureEnd = SystemClock.uptimeMillis();
+                svc.handler.postDelayed(() -> waitStill(gestureEnd), MIN_WAIT_MS);
             });
+        });
+    }
+
+    /**
+     * Shoots once the list has stopped: no scroll event for QUIET_MS (apps settle at different speeds),
+     * but at least MIN_WAIT_MS after the gesture and never longer than MAX_WAIT_MS.
+     */
+    private void waitStill(long since) {
+        guard(() -> {
+            if (finished) return;
+            long now = SystemClock.uptimeMillis();
+            if (now - since >= MAX_WAIT_MS || now - Math.max(since, lastScrollAt) >= QUIET_MS) shootStep();
+            else svc.handler.postDelayed(() -> waitStill(since), 50);
         });
     }
 
@@ -164,13 +188,21 @@ final class ScrollCapture {
         if (finished) return;
         svc.shoot(frame -> guard(() -> {
             pill.setVisibility(View.VISIBLE);
+            boolean known = scrollSeen && scrollSum > 0; // read here: onScrolled writes it on this thread
+            int moved = known ? scrollSum : 0;
             new Thread(() -> guard(() -> {
-                String stop = add(frame, 0);
+                String stop = add(frame, moved, known);
                 svc.handler.post(() -> guard(() -> {
                     busy = false;
                     if (finished) return;
                     label.setText(pages + "페이지");
-                    if (stop != null) {
+                    if (stop == null) retried = 0;
+                    if (stop != null && stop.equals(STOP_END) && retried == 0) {
+                        // The swipe may have been ignored or the app was slow to react: try once more
+                        // before calling it the end of the page.
+                        retried++;
+                        svc.handler.postDelayed(this::step, 400);
+                    } else if (stop != null) {
                         ended = true;
                         full = stop.equals(STOP_FULL);
                         // Nothing moved on the very first step: the app likely ignores injected swipes.
@@ -180,7 +212,7 @@ final class ScrollCapture {
                     }
                 }));
             })).start();
-        }), () -> stepFailed("캡처 실패"));
+        }), this::stepFailed);
     }
 
     private void stepFailed(String msg) {
@@ -210,12 +242,17 @@ final class ScrollCapture {
     private static final String STOP_END = "끝까지 캡처했어요";
     private static final String STOP_FULL = "최대 길이까지 캡처했어요";
 
-    /** Stitches frame b onto the result. Returns a reason to stop, or null to keep going. Background thread. */
-    private synchronized String add(Bitmap b, int expectedShift) {
+    /**
+     * Stitches frame b onto the result. Returns a reason to stop, or null to keep going. Background thread.
+     * expectedShift: how far the content moved if known, else 0. exact: it came from the app's own scroll
+     * events (search a narrow window around it) rather than a rough guess like the manual line.
+     */
+    private synchronized String add(Bitmap b, int expectedShift, boolean exact) {
         if (finished) { b.recycle(); return null; }
-        boolean[] info = new boolean[h];
+        boolean[] info = new boolean[h], sigInfo = new boolean[h];
         int[] seg = new int[h * Stitcher.SEGMENTS];
-        int[] hash = hashes(b, info, seg);
+        byte[] sig = new byte[h * Stitcher.SIG];
+        int[] hash = hashes(b, info, seg, sig, sigInfo);
         // Region of the scrolling list. When accessibility doesn't tell us, infer it from this pair, but
         // only keep it if the step succeeds: a step where only a popup changed (KakaoTalk's date chip)
         // would otherwise lock a tiny bogus region and every later step fails.
@@ -233,14 +270,38 @@ final class ScrollCapture {
         if (!moved) { b.recycle(); return STOP_END; }
         int cutHere = pieces.isEmpty() ? rTop + Math.round(listH * CUT) : cut;
         int takenHere = pieces.isEmpty() ? cutHere : taken;
+        // Where to look first: around the reported distance when the app told us, else around the swipe.
         int expected = expectedShift > 0 ? expectedShift : Math.round(listH * SWIPE);
-        int d = Stitcher.findShift(prevHash, hash, info, rTop, band, expected / 2, expected * 8 / 5);
-        if (d <= 0) { b.recycle(); return "더 이어 붙일 수 없는 화면이에요"; }
+        int minD = exact ? expected - HINT_SLACK : expected / 2;
+        int maxD = exact ? expected + HINT_SLACK : expected * 8 / 5;
+        // 1) exact rows (fast, and the safest seam when the app draws pixel-identical frames)
+        int d = Stitcher.findShift(prevHash, hash, info, rTop, band, minD, maxD);
+        boolean ok = d > 0 && Stitcher.matchRatio(prevSeg, seg, info, rTop, band, d) >= MIN_MATCH;
+        if (!ok) {
+            // 2) tolerant rows: anti-aliasing jitter (Chrome, WebView, Compose), a blinking cursor, a GIF
+            float still = Stitcher.tolRatio(prevSig, sig, sigInfo, rTop, band, 0, 1);
+            int[] m = Stitcher.tolShift(prevSig, sig, sigInfo, rTop, band, minD, maxD);
+            if (m[0] <= 0 || m[1] < Stitcher.TOL_MATCH * 1000) { // not in the expected window: search all
+                int[] all = Stitcher.tolShift(prevSig, sig, sigInfo, rTop, band, 1, listH);
+                if (all[1] > m[1]) m = all;
+            }
+            if (m[0] > 0 && m[1] >= Stitcher.TOL_MATCH * 1000 && m[1] > still * 1000) {
+                d = m[0];
+                ok = true;
+            } else if (still >= 0.75f) {
+                // Only small things changed in place (an ad, a clock): the list itself did not move.
+                b.recycle();
+                return STOP_END;
+            }
+        }
+        if (!ok) {
+            b.recycle();
+            return d <= 0 ? "더 이어 붙일 수 없는 화면이에요" : "화면이 바뀌어 멈췄어요 · '완료'로 저장";
+        }
         // Moved further than the cut line allows: the rows in between are still in prev, below its cut.
         int gap = Math.max(0, rTop - (takenHere - (offset + d)));
         // Safety: never glue a doubtful seam. Stop and keep what's already stitched instead.
-        if (Stitcher.matchRatio(prevSeg, seg, info, rTop, band, d) < MIN_MATCH
-                || cutHere + gap > band) { // even prev doesn't hold the missing rows
+        if (cutHere + gap > band) { // even prev doesn't hold the missing rows
             b.recycle();
             return "화면이 바뀌어 멈췄어요 · '완료'로 저장";
         }
@@ -270,6 +331,7 @@ final class ScrollCapture {
         prev = b;
         prevHash = hash;
         prevSeg = seg;
+        prevSig = sig;
         Bitmap t = ShotService.thumbnail(svc, b);
         svc.handler.post(() -> thumb.setImageBitmap(t));
         if (pages >= MAX_PAGES || height >= MAX_HEIGHT) return STOP_FULL;
@@ -282,12 +344,13 @@ final class ScrollCapture {
         return r == src ? src.copy(Bitmap.Config.ARGB_8888, false) : r;
     }
 
-    private int[] hashes(Bitmap b, boolean[] info, int[] seg) {
+    private int[] hashes(Bitmap b, boolean[] info, int[] seg, byte[] sig, boolean[] sigInfo) {
         int[] px = new int[w * h];
         b.getPixels(px, 0, w, 0, 0, w, h);
         int[] hash = new int[h];
         Stitcher.rowHashes(px, w, h, hash, info != null ? info : new boolean[h]);
         Stitcher.segmentHashes(px, w, h, seg);
+        Stitcher.rowSigs(px, w, h, sig, sigInfo != null ? sigInfo : new boolean[h]);
         return hash;
     }
 
@@ -471,7 +534,15 @@ final class ScrollCapture {
 
     /** Scroll amount reported by the app (TYPE_VIEW_SCROLLED). Main thread. */
     void onScrolled(int dy) {
-        if (!manual || finished || busy || anchor != null || dy == 0) return;
+        if (!manual) { // auto mode: add up how far the app says it scrolled during this step
+            lastScrollAt = SystemClock.uptimeMillis();
+            if (busy && dy != -1) { // -1: the app didn't report an amount
+                scrollSum += dy;
+                scrollSeen = true;
+            }
+            return;
+        }
+        if (finished || busy || anchor != null || dy == 0) return;
         guard(() -> {
             if (!eventMode) {
                 eventMode = true;
@@ -517,7 +588,7 @@ final class ScrollCapture {
         svc.handler.postDelayed(() -> guard(() -> svc.shoot(frame -> guard(() -> {
             showOverlays();
             new Thread(() -> guard(() -> {
-                String stop = add(frame, expectedShift);
+                String stop = add(frame, expectedShift, false);
                 svc.handler.post(() -> guard(() -> {
                     busy = false;
                     if (finished || !manual) return;
@@ -537,10 +608,10 @@ final class ScrollCapture {
                     }
                 }));
             })).start();
-        }), () -> {
+        }), msg -> {
             showOverlays();
             busy = false;
-            say("캡처 실패");
+            say(msg);
         })), 80);
     }
 

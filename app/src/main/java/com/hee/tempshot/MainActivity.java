@@ -17,10 +17,12 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 public class MainActivity extends Activity {
-    private static final int[] PRESETS = {1, 3, 7, 30};
+    private static final int[] PRESETS = {1, 6, 24, 72, 168, 720}; // hours
     private Ui ui;
     private TextView headerStatus, serviceState;
     private LinearLayout chips;
+    private LinearLayout stuckCard;
+    private TextView stuckText;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -85,10 +87,25 @@ public class MainActivity extends Activity {
         period.setPadding(ui.dp(20), ui.dp(16), ui.dp(20), ui.dp(16));
         period.addView(ui.text("찍은 뒤 이 기간이 지나면 휴지통으로 가요 (30일 안에 복구 가능)", 14, ui.subText));
         chips = new LinearLayout(this);
+        chips.setOrientation(LinearLayout.VERTICAL);
         chips.setPadding(0, ui.dp(12), 0, 0);
         period.addView(chips);
         col.addView(period, cardLp());
         renderChips();
+
+        // Old shots the cleanup couldn't move (they belonged to a previous install of the app)
+        stuckCard = card();
+        LinearLayout stuckRow = new LinearLayout(this);
+        stuckRow.setGravity(Gravity.CENTER_VERTICAL);
+        stuckRow.setPadding(ui.dp(20), ui.dp(16), ui.dp(20), ui.dp(16));
+        stuckRow.setBackground(ui.pressable(ui.card, 24));
+        stuckText = ui.text("", 15, ui.text);
+        stuckRow.addView(stuckText, new LinearLayout.LayoutParams(0, -2, 1));
+        stuckRow.addView(ui.text("정리", 15, Ui.ACCENT));
+        stuckRow.setOnClickListener(v -> trashStuck());
+        stuckCard.addView(stuckRow);
+        stuckCard.setVisibility(View.GONE);
+        col.addView(stuckCard, cardLp());
 
         // Capture options card
         col.addView(sectionTitle("캡처"));
@@ -171,6 +188,48 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         refreshStatus();
+        CleanupJob.schedule(this);
+        if (stuckCard != null) {
+            new Thread(() -> {
+                java.util.ArrayList<android.net.Uri> stuck = new java.util.ArrayList<>();
+                try { ShotService.cleanup(this, stuck); } catch (RuntimeException ignored) { }
+                runOnUiThread(() -> showStuck(stuck.size()));
+            }).start();
+        }
+    }
+
+    private void showStuck(int n) {
+        if (stuckCard == null) return;
+        stuckCard.setVisibility(n > 0 ? View.VISIBLE : View.GONE);
+        stuckText.setText("정리 못 한 지난 스샷 " + n + "개");
+    }
+
+    /** Asks once to trash old shots that aren't this install's anymore (one system dialog for all). */
+    private void trashStuck() {
+        new Thread(() -> {
+            java.util.ArrayList<android.net.Uri> stuck = new java.util.ArrayList<>();
+            try { ShotService.cleanup(this, stuck); } catch (RuntimeException ignored) { }
+            if (stuck.isEmpty()) { runOnUiThread(() -> showStuck(0)); return; }
+            android.app.PendingIntent pi = android.provider.MediaStore.createTrashRequest(getContentResolver(), stuck, true);
+            runOnUiThread(() -> {
+                try {
+                    startIntentSenderForResult(pi.getIntentSender(), REQ_TRASH, null, 0, 0, 0);
+                } catch (android.content.IntentSender.SendIntentException e) {
+                    Toast.makeText(this, "정리 실패", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }).start();
+    }
+
+    private static final int REQ_TRASH = 7;
+
+    @Override
+    protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req == REQ_TRASH && res == RESULT_OK) {
+            showStuck(0);
+            Toast.makeText(this, "휴지통으로 옮겼어요", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void refreshStatus() {
@@ -178,18 +237,31 @@ public class MainActivity extends Activity {
         boolean on = ShotService.instance != null;
         serviceState.setText(on ? "켜짐" : "꺼짐");
         serviceState.setTextColor(on ? Ui.ACCENT : Ui.DANGER);
-        headerStatus.setText(on ? ShotService.days(this) + "일 뒤 휴지통으로 정리 중" : "접근성 서비스를 켜 주세요");
+        headerStatus.setText(on ? ShotService.period(this) + " 뒤 휴지통으로 정리 중" : "접근성 서비스를 켜 주세요");
     }
 
+    /** Two rows of four: 1시간 6시간 1일 3일 / 7일 30일 직접. */
     private void renderChips() {
         chips.removeAllViews();
-        int cur = ShotService.days(this);
+        int cur = ShotService.hours(this);
         boolean custom = true;
-        for (int d : PRESETS) {
-            chips.addView(chip(d + "일", d == cur, v -> setDays(d)), chipLp());
-            if (d == cur) custom = false;
+        for (int h : PRESETS) if (h == cur) custom = false;
+        LinearLayout row = null;
+        for (int i = 0; i <= PRESETS.length; i++) {
+            if (i % 4 == 0) {
+                row = new LinearLayout(this);
+                LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(-1, -2);
+                if (i > 0) rl.topMargin = ui.dp(6);
+                chips.addView(row, rl);
+            }
+            if (i < PRESETS.length) {
+                int h = PRESETS[i];
+                row.addView(chip(ShotService.periodLabel(h), h == cur, v -> setHours(h)), chipLp());
+            } else {
+                row.addView(chip(custom ? ShotService.periodLabel(cur) : "직접", custom, v -> askCustom()), chipLp());
+                row.addView(new View(this), chipLp()); // keeps the last row's chips the same width
+            }
         }
-        chips.addView(chip(custom ? cur + "일" : "직접", custom, v -> askCustom()), chipLp());
     }
 
     private void askCustom() {
@@ -207,14 +279,14 @@ public class MainActivity extends Activity {
                         Toast.makeText(this, "1~3650 사이로 입력해 주세요", Toast.LENGTH_SHORT).show();
                         return;
                     }
-                    setDays(d);
+                    setHours(d * 24);
                 })
                 .setNegativeButton("취소", null)
                 .show();
     }
 
-    private void setDays(int d) {
-        getSharedPreferences(ShotService.PREFS, MODE_PRIVATE).edit().putInt(ShotService.KEY_DAYS, d).apply();
+    private void setHours(int h) {
+        getSharedPreferences(ShotService.PREFS, MODE_PRIVATE).edit().putInt(ShotService.KEY_HOURS, h).apply();
         int n = ShotService.cleanup(this);
         if (n > 0) Toast.makeText(this, "지난 스샷 " + n + "개를 휴지통으로 옮겼어요", Toast.LENGTH_SHORT).show();
         renderChips();
