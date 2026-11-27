@@ -55,7 +55,8 @@ public class CropActivity extends Activity {
         CropView crop = new CropView(this, bitmap, initial, cands != null ? cands : new ArrayList<>());
 
         android.widget.TextView hint = ui.text(cands != null && !cands.isEmpty()
-                ? "사진이나 영역을 탭하면 자동으로 맞춰요" : "모서리를 끌어서 범위를 정하세요", 13, 0xFFB0B0B5);
+                ? "대각선으로 그어서 범위를 잡거나, 영역을 탭하면 자동으로 맞춰요"
+                : "대각선으로 그어서 범위를 잡거나, 모서리를 끌어서 다듬으세요", 13, 0xFFB0B0B5);
         hint.setGravity(Gravity.CENTER);
         hint.setPadding(0, ui.dp(12), 0, ui.dp(4));
 
@@ -103,9 +104,14 @@ public class CropActivity extends Activity {
         if (ShotService.instance != null) ShotService.instance.showToolbar(uri, ShotService.thumbnail(this, out), false);
     }
 
-    /** Shows the image fit to the view with a draggable crop rectangle (edges, corners, or move). */
+    /**
+     * Shows the image fit to the view with a crop rectangle. Drag an edge or corner to resize; drag
+     * anywhere else to draw a new box (Galaxy-style "swipe to select"), which snaps to the on-screen
+     * element it best covers; tap to snap to the element under the finger.
+     */
     static class CropView extends View {
-        private static final int L = 1, T = 2, R = 4, B = 8, MOVE = 16;
+        private static final int L = 1, T = 2, R = 4, B = 8, DRAW = 32;
+        private static final float SNAP_IOU = 0.6f; // how closely a drawn box must cover an element to snap
         private final Bitmap bmp;
         private final RectF img = new RectF();   // where the bitmap is drawn
         private final RectF crop = new RectF();  // crop rect in view coords
@@ -118,6 +124,7 @@ public class CropActivity extends Activity {
         private int mode;
         private float lastX, lastY, downX, downY;
         private boolean moved;
+        private final RectF before = new RectF(); // crop before a draw, restored if the box is too small
 
         CropView(Context c, Bitmap bmp, Rect initial, ArrayList<Rect> candidates) {
             super(c);
@@ -171,6 +178,30 @@ public class CropActivity extends Activity {
             }
         }
 
+        /** Snaps a drawn box to the element it overlaps best, if that overlap is close enough. */
+        private void snapToBox() {
+            Rect r = cropInBitmap();
+            Rect best = null;
+            float bestIou = SNAP_IOU;
+            for (Rect e : candidates) {
+                float v = iou(r.left, r.top, r.right, r.bottom, e.left, e.top, e.right, e.bottom);
+                if (v >= bestIou) {
+                    bestIou = v;
+                    best = e;
+                }
+            }
+            if (best != null) toView(best, crop);
+        }
+
+        /** Intersection over union of two boxes: 1 = identical, 0 = no overlap. */
+        static float iou(int al, int at, int ar, int ab, int bl, int bt, int br, int bb) {
+            long iw = Math.max(0, Math.min(ar, br) - Math.max(al, bl));
+            long ih = Math.max(0, Math.min(ab, bb) - Math.max(at, bt));
+            long inter = iw * ih;
+            long union = (long) (ar - al) * (ab - at) + (long) (br - bl) * (bb - bt) - inter;
+            return union <= 0 ? 0f : (float) inter / union;
+        }
+
         @Override
         protected void onDraw(Canvas c) {
             c.drawBitmap(bmp, null, img, null);
@@ -206,7 +237,8 @@ public class CropActivity extends Activity {
                     else if (Math.abs(x - crop.right) < touch) mode |= R;
                     if (Math.abs(y - crop.top) < touch) mode |= T;
                     else if (Math.abs(y - crop.bottom) < touch) mode |= B;
-                    if (mode == 0 && crop.contains(x, y)) mode = MOVE;
+                    if (mode == 0 && img.contains(x, y)) mode = DRAW;
+                    before.set(crop);
                     lastX = downX = x;
                     lastY = downY = y;
                     moved = false;
@@ -217,10 +249,9 @@ public class CropActivity extends Activity {
                     float dx = x - lastX, dy = y - lastY;
                     lastX = x;
                     lastY = y;
-                    if (mode == MOVE) {
-                        dx = clamp(dx, img.left - crop.left, img.right - crop.right);
-                        dy = clamp(dy, img.top - crop.top, img.bottom - crop.bottom);
-                        crop.offset(dx, dy);
+                    if (mode == DRAW) { // box from where the finger went down to where it is now
+                        float cx = clamp(x, img.left, img.right), cy = clamp(y, img.top, img.bottom);
+                        crop.set(Math.min(downX, cx), Math.min(downY, cy), Math.max(downX, cx), Math.max(downY, cy));
                     } else {
                         if ((mode & L) != 0) crop.left = clamp(crop.left + dx, img.left, crop.right - minSize);
                         if ((mode & R) != 0) crop.right = clamp(crop.right + dx, crop.left + minSize, img.right);
@@ -231,6 +262,10 @@ public class CropActivity extends Activity {
                     return true;
                 case MotionEvent.ACTION_UP:
                     if (!moved) snapTo(x, y);
+                    else if (mode == DRAW) {
+                        if (crop.width() < minSize || crop.height() < minSize) crop.set(before); // a slip, not a box
+                        else snapToBox();
+                    }
                     mode = 0;
                     invalidate();
                     return true;
