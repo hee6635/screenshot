@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
     <shortcut
-        android:shortcutId="capture"
+        android:shortcutId="settings"
         android:enabled="true"
         android:icon="@drawable/ic_shortcut_capture"
-        android:shortcutShortLabel="@string/shortcut_capture">
+        android:shortcutShortLabel="@string/shortcut_settings">
         <intent
             android:action="android.intent.action.VIEW"
             android:targetPackage="com.hee.tempshot"
-            android:targetClass="com.hee.tempshot.CaptureActivity" />
+            android:targetClass="com.hee.tempshot.MainActivity" />
     </shortcut>
 </shortcuts>

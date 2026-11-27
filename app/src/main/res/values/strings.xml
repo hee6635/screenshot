@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="service_desc">원핸드 오퍼레이션+ 제스처나 빠른 설정 타일로 임시 스크린샷을 찍어요. 설정한 기간이 지나면 갤러리 휴지통으로 옮겨져요(30일 안에 복구 가능). 화면 내용은 기기에만 저장되고 어디에도 전송되지 않아요.</string>
-    <string name="shortcut_capture">바로 캡처</string>
+    <string name="shortcut_settings">설정</string>
 </resources>

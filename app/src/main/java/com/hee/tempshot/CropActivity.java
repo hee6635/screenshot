@@ -54,11 +54,6 @@ public class CropActivity extends Activity {
         Rect initial = getIntent().getParcelableExtra(EXTRA_INITIAL);
         CropView crop = new CropView(this, bitmap, initial, cands != null ? cands : new ArrayList<>());
 
-        android.widget.TextView hint = ui.text(cands != null && !cands.isEmpty()
-                ? "대각선으로 그어서 범위를 잡거나, 영역을 탭하면 자동으로 맞춰요"
-                : "대각선으로 그어서 범위를 잡거나, 모서리를 끌어서 다듬으세요", 13, 0xFFB0B0B5);
-        hint.setGravity(Gravity.CENTER);
-        hint.setPadding(0, ui.dp(12), 0, ui.dp(4));
 
         // Small floating pill in the capture bar's style instead of a full-width bottom bar.
         LinearLayout pill = new LinearLayout(this);
@@ -80,7 +75,6 @@ public class CropActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.BLACK);
-        root.addView(hint);
         root.addView(crop, new LinearLayout.LayoutParams(-1, 0, 1));
         LinearLayout.LayoutParams pl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
