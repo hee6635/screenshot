@@ -60,19 +60,33 @@ public class CropActivity extends Activity {
         hint.setGravity(Gravity.CENTER);
         hint.setPadding(0, ui.dp(12), 0, ui.dp(4));
 
-        LinearLayout bar = new LinearLayout(this);
-        bar.setGravity(Gravity.CENTER);
-        bar.addView(ui.action(R.drawable.ic_close, "취소", Color.WHITE, v -> finish()),
-                new LinearLayout.LayoutParams(0, -2, 1));
-        bar.addView(ui.action(R.drawable.ic_check, "완료", Ui.ACCENT, v -> save(crop.cropInBitmap())),
-                new LinearLayout.LayoutParams(0, -2, 1));
+        // Small floating pill in the capture bar's style instead of a full-width bottom bar.
+        LinearLayout pill = new LinearLayout(this);
+        pill.setGravity(Gravity.CENTER_VERTICAL);
+        pill.setPadding(ui.dp(6), ui.dp(6), ui.dp(6), ui.dp(6));
+        android.graphics.drawable.GradientDrawable pillBg = ui.round(0xEB1E2026, 22);
+        pillBg.setStroke(ui.dp(1), 0x24FFFFFF);
+        pill.setBackground(pillBg);
+        pill.setElevation(ui.dp(8));
+        LinearLayout.LayoutParams btn = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, ui.dp(42));
+        pill.addView(ui.pillButton(R.drawable.ic_close, "취소", 0xFFE6E8EE, 0x00000000, v -> finish()), btn);
+        View sep = new View(this);
+        sep.setBackgroundColor(0x26FFFFFF);
+        LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(ui.dp(1), ui.dp(22));
+        sl.setMargins(ui.dp(4), 0, ui.dp(6), 0);
+        pill.addView(sep, sl);
+        pill.addView(ui.pillButton(R.drawable.ic_check, "완료", 0xFFFFFFFF, Ui.KEEP_BLUE, v -> save(crop.cropInBitmap())), btn);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.BLACK);
         root.addView(hint);
         root.addView(crop, new LinearLayout.LayoutParams(-1, 0, 1));
-        root.addView(bar, new LinearLayout.LayoutParams(-1, ui.dp(72)));
+        LinearLayout.LayoutParams pl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        pl.gravity = Gravity.CENTER_HORIZONTAL;
+        pl.setMargins(0, ui.dp(10), 0, ui.dp(16));
+        root.addView(pill, pl);
         Ui.padForSystemBars(root, 0);
         setContentView(root);
     }

@@ -58,24 +58,21 @@ final class Ui {
         return t;
     }
 
-    /** Icon above a small label, like Galaxy's bottom action buttons. */
-    LinearLayout action(int icon, String label, int fg, View.OnClickListener click) {
-        LinearLayout b = new LinearLayout(c);
-        b.setOrientation(LinearLayout.VERTICAL);
-        b.setGravity(Gravity.CENTER);
-        b.setPadding(dp(10), dp(6), dp(10), dp(6));
-        b.setBackground(pressable(0x00000000, 16));
-        ImageView i = new ImageView(c);
-        i.setImageResource(icon);
-        i.setImageTintList(ColorStateList.valueOf(fg));
-        b.addView(i, new LinearLayout.LayoutParams(dp(24), dp(24)));
-        TextView t = text(label, 11, fg);
-        t.setSingleLine(true); // "자르기" was wrapping to "자르" on large font settings
-        t.setPadding(0, dp(3), 0, 0);
-        b.addView(t);
-        b.setContentDescription(label);
-        b.setOnClickListener(click);
-        return b;
+    /** Icon + label in one row, for the crop screen's floating pill. bg 0 = transparent. */
+    TextView pillButton(int icon, String label, int fg, int bg, View.OnClickListener click) {
+        TextView t = text(label, 14, fg);
+        t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        t.setSingleLine(true);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(16), 0, dp(18), 0);
+        android.graphics.drawable.Drawable d = c.getDrawable(icon).mutate();
+        d.setBounds(0, 0, dp(18), dp(18));
+        d.setTint(fg);
+        t.setCompoundDrawablesRelative(d, null, null, null);
+        t.setCompoundDrawablePadding(dp(6));
+        t.setBackground(pressable(bg, 16));
+        t.setOnClickListener(click);
+        return t;
     }
 
     // --- floating bar (after a capture / during scroll capture) ---
