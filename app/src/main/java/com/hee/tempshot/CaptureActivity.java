@@ -4,7 +4,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
 
-/** The app icon: captures right away (One Hand Operation+ launches this too). Settings are on long-press. */
+/** Invisible capture trigger behind the app icon's long-press "바로 캡처". */
 public class CaptureActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {

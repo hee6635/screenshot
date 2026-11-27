@@ -7,24 +7,23 @@
         android:largeHeap="true"
         android:theme="@android:style/Theme.DeviceDefault.DayNight">
 
-        <!-- Settings: opened from the icon's long-press menu, the bar's period chip, or the icon while
-             the service is off. -->
-        <activity android:name=".MainActivity" android:exported="true" />
-
-        <!-- The one launcher icon: tapping it captures (also what One Hand Operation+ launches). -->
-        <activity
-            android:name=".CaptureActivity"
-            android:exported="true"
-            android:excludeFromRecents="true"
-            android:noHistory="true"
-            android:taskAffinity=""
-            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+        <!-- The one app icon opens settings; its long-press menu has "바로 캡처". -->
+        <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- Invisible capture trigger for the long-press shortcut (no icon of its own). -->
+        <activity
+            android:name=".CaptureActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <activity
             android:name=".CropActivity"
